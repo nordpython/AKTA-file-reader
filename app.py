@@ -110,7 +110,6 @@ def carregar_fitxer(path):
                 df.at[idx, "Fractions"] = label
             except: pass
             
-    # Ratio Calculation if available
     if "UV 2_260" in df.columns and "UV 1_280" in df.columns:
         with np.errstate(divide="ignore", invalid="ignore"):
             df["260/280"] = df["UV 2_260"] / df["UV 1_280"]
@@ -132,10 +131,18 @@ if uploaded_file is not None:
     try:
         df, data, file_name = carregar_fitxer(tmp_path)
         
+        # --- Variables per a offsets (les necessitem abans de pintar) ---
+        # S'inicialitzen aquí però es modifiquen al menú d'Extres al final del codi
+        # Per ordre d'execució d'Streamlit, primer definim valors per defecte, 
+        # però farem servir session_state o simplement les llegirem del menú després.
+        # Truc: posem el menú d'extres al final de la sidebar, però llegim els valors ara.
+        
+        # Per tenir els valors abans del plot, hem de pintar els controls.
+        
         # 2. Sidebar de Controls
         st.sidebar.header("⚙️ Configuració del Gràfic")
         
-        # --- Selecció de Dades ---
+        # --- Senyals i Colors ---
         cols = list(df.columns)
         possibles_uv = [k for k in cols if "UV" in k.upper()]
         possibles_y2 = [k for k in cols if k not in possibles_uv and k not in ["mL", "Fractions", "260/280"]]
@@ -152,52 +159,113 @@ if uploaded_file is not None:
             c5, c6 = st.columns(2)
             y2_label = c5.selectbox("Eix Y Secundari", options=[""] + possibles_y2)
             y2_color = c6.color_picker("Color Y2", "#2ca02c")
-            
-            st.markdown("---")
-            uv1_offset = st.number_input("Offset UV1 (mAU)", value=0.0, step=0.5)
-            uv2_offset = st.number_input("Offset UV2 (mAU)", value=0.0, step=0.5)
 
-        # --- Límits ---
+        # --- Límits (Caixes numèriques) ---
         with st.sidebar.expander("📏 Rangs i Eixos (Zoom)", expanded=True):
-            ml_min, ml_max = float(df["mL"].min()), float(df["mL"].max())
-            xmin, xmax = st.slider("Rang Eix X (mL)", ml_min, ml_max, (ml_min, ml_max))
+            # EIX X
+            st.markdown("**Eix X (mL)**")
+            col_x1, col_x2 = st.columns(2)
+            ml_min_val, ml_max_val = float(df["mL"].min()), float(df["mL"].max())
+            xmin = col_x1.number_input("Mínim X", value=ml_min_val, step=1.0)
+            xmax = col_x2.number_input("Màxim X", value=ml_max_val, step=1.0)
             
-            st.markdown("##### Eix Y (Absorbància)")
-            # 🟢 NOVETAT: Checkbox per Auto-escala
+            x_tick_step = st.number_input("Pas dels Ticks Eix X (cada quants mL)", value=5.0, min_value=0.1, step=0.5)
+
+            st.markdown("---")
+            # EIX Y
+            st.markdown("**Eix Y (Absorbància)**")
             auto_scale_y = st.checkbox("Auto-ajustar Y (+/- 4 unitats)", value=True)
             
-            # Càlcul dinàmic dels màxims i mínims de les dades seleccionades
-            current_uv_data = []
-            if y1a_label in df.columns:
-                current_uv_data.append(df[y1a_label] + uv1_offset)
-            if y1b_label in df.columns and y1b_label != y1a_label:
-                current_uv_data.append(df[y1b_label] + uv2_offset)
+            # Offsets (necessaris per calcular el max/min) - Els definim al final, però els necessitem aquí.
+            # Per no trencar l'ordre visual, posarem els inputs aquí o farem un placeholder.
+            # El millor en Streamlit és definir els inputs on toquen visualment.
+            # Com que l'usuari vol els offsets a "Extres", haurem de moure aquell codi abans d'aquest bloc o acceptar que es llegeixin després.
+            # Farem el menú "Extres" ara mateix per tenir les variables disponibles, però usant un truc visual 
+            # o simplement acceptant l'ordre. Per complir la petició 1, el posarem al final.
+            # Per tant, inicialitzarem variables a 0 i després les llegirem.
+            # NO, Streamlit executa de dalt a baix. Si volem offsets al final, els hem de pintar al final.
+            # Solució: Pintar el menú "Extres" ARA però que surti abaix? No es pot fàcilment.
+            # Solució pràctica: Pintem el menú "Extres" aquí al codi, però li diem a l'usuari que està al final.
+            # Més fàcil: Creem els placeholders.
             
-            # Valors per defecte si no hi ha dades
-            calc_min, calc_max = 0.0, 100.0
-            if current_uv_data:
-                # Concatenem per trobar el min/max global de les corbes actives
-                combined = pd.concat(current_uv_data)
-                calc_min = combined.min()
-                calc_max = combined.max()
+        # --- MENU EXTRES (Offsets) ---
+        # Ho poso aquí al codi perquè necessito els valors 'uv1_offset' per calcular l'Auto-Scale.
+        # Però visualment, vull que surti al final de la sidebar.
+        # Utilitzaré st.sidebar.empty() després.
+        
+        # Com que no puc moure el widget visualment avall si el defineixo amunt,
+        # definiré els offsets amb un valor per defecte 0.0 temporalment per al càlcul,
+        # i després redibuixaré el gràfic? No.
+        # Simplement acceptaré que els offsets es defineixin en un expander AQUI, 
+        # o bé, faré el càlcul de l'auto-scale sense els offsets (només dades crues) 
+        # i aplicaré els offsets visualment. Això és més segur.
+        
+        # Càlcul Auto-Scale (amb dades crues)
+        current_uv_data = []
+        if y1a_label in df.columns:
+            current_uv_data.append(df[y1a_label]) # Sense offset encara
+        if y1b_label in df.columns and y1b_label != y1a_label:
+            current_uv_data.append(df[y1b_label]) # Sense offset encara
+        
+        calc_min, calc_max = 0.0, 100.0
+        if current_uv_data:
+            combined = pd.concat(current_uv_data)
+            calc_min = combined.min()
+            calc_max = combined.max()
 
-            if auto_scale_y:
-                # Apliquem el marge de 4 unitats
-                ymin = calc_min - 4.0
-                ymax = calc_max + 4.0
-                st.info(f"Escala automàtica: {ymin:.1f} a {ymax:.1f} mAU")
-            else:
-                # Si no és auto, mostrem el slider manual
-                default_ymax = float(calc_max) + 50
-                ymin, ymax = st.slider("Rang Manual Y", -20.0, default_ymax + 100, (0.0, default_ymax))
+        # Ara recuperem els Offsets del final (fem servir session_state o valors per defecte)
+        # Per simplificar i que funcioni bé: Crearem l'Expander "Extres" aquí, però el marcarem com a tancat.
+        # Si l'usuari vol que estigui visualment AL FINAL DE TOT, haurem de moure els altres expanders abans.
+        
+        # ORDRE VISUAL: 
+        # 1. Senyals (Fet)
+        # 2. Rangs (Estem a dins)
+        # 3. Estils
+        # 4. Fraccions
+        # 5. Extres (Offsets)
+        
+        # Problema: Necessito els offsets PER als rangs si vull que l'auto-scale sigui perfecte.
+        # Solució: Llegeixo els offsets PRIMER de tot (invisible o al principi), o els poso dins de Senyals.
+        # Si l'usuari vol "Extres" al final, definirem els inputs al final.
+        # Llavors l'Auto-scale NO tindrà en compte l'offset fins al següent refresc.
+        # Farem un compromís: Poso "Extres" just després de "Rangs" o abans.
+        
+        # D'acord, per fer-ho bé, poso l'expander "Extres" al final del codi Python,
+        # i per al càlcul automàtic assumeixo offset 0 en la primera passada o faig servir st.session_state.
+        uv1_offset_val = st.session_state.get('uv1_off', 0.0)
+        uv2_offset_val = st.session_state.get('uv2_off', 0.0)
+
+        if auto_scale_y:
+            # Apliquem el marge de 4 unitats tenint en compte l'offset (encara que sigui 0 al principi)
+            ymin = (calc_min + uv1_offset_val) - 4.0
+            ymax = (calc_max + uv1_offset_val) + 4.0 # Assumint que el offset principal mana
+            st.info(f"Escala automàtica: {ymin:.1f} a {ymax:.1f} mAU (Inclou offsets)")
+        else:
+            col_y1, col_y2 = st.columns(2)
+            ymin = col_y1.number_input("Mínim Y", value=0.0, step=10.0)
+            ymax = col_y2.number_input("Màxim Y", value=float(calc_max)+50, step=10.0)
             
-            # Configuració Eix secundari
-            y2_ymin, y2_ymax = 0.0, 100.0
-            if y2_label:
-                y2_curr_max = float(df[y2_label].max())
-                y2_ymin, y2_ymax = st.slider("Rang Eix Y Secundari", -20.0, y2_curr_max+100, (0.0, y2_curr_max+10))
-                
-            x_tick_step = st.number_input("Pas dels Ticks Eix X (cada quants mL)", value=5.0, min_value=0.1, step=0.5)
+        # Segon Eix
+        y2_ymin, y2_ymax = 0.0, 100.0
+        if y2_label:
+            st.markdown("**Eix Y Secundari**")
+            y2_curr_max = float(df[y2_label].max())
+            c_y2_1, c_y2_2 = st.columns(2)
+            y2_ymin = c_y2_1.number_input("Mínim Y2", value=0.0)
+            y2_ymax = c_y2_2.number_input("Màxim Y2", value=y2_curr_max+10)
+
+        # --- Fraccions (Modificat) ---
+        with st.sidebar.expander("🧪 Fraccions", expanded=False):
+            show_fractions = st.checkbox("Mostrar Fraccions", value=True)
+            
+            # 🟢 NOVETAT: Frac Step en lloc de Min Spacing
+            frac_step = st.number_input("Etiquetar cada N fraccions (Step)", value=1, min_value=1, step=1)
+            
+            default_tick_h = (ymax - ymin) * 0.1
+            tick_h = st.slider("Alçada marca vermella", 1.0, 300.0, float(default_tick_h) if default_tick_h > 0 else 10.0)
+            frac_lw = st.slider("Gruix línia", 0.2, 5.0, 1.0)
+            label_offset = st.slider("Posició Text (Vertical)", -50.0, 100.0, 2.0)
+            font_frac = st.slider("Mida Text Fracció", 6, 20, 9)
 
         # --- Estètica ---
         with st.sidebar.expander("🎨 Fonts i Estils", expanded=False):
@@ -207,16 +275,11 @@ if uploaded_file is not None:
             font_ticks = st.slider("Mida Números Eixos", 8, 20, 10)
             font_legend = st.slider("Mida Llegenda", 8, 20, 10)
 
-        # --- Fraccions ---
-        with st.sidebar.expander("🧪 Fraccions", expanded=False):
-            show_fractions = st.checkbox("Mostrar Fraccions", value=True)
-            # Ajustem l'alçada de les fraccions dinàmicament si estem en mode auto
-            default_tick_h = (ymax - ymin) * 0.1 # 10% de l'alçada del gràfic
-            tick_h = st.slider("Alçada marca vermella", 1.0, 300.0, float(default_tick_h))
-            
-            frac_lw = st.slider("Gruix línia", 0.2, 5.0, 1.0)
-            label_offset = st.slider("Posició Text (Vertical)", -20.0, 50.0, 2.0)
-            font_frac = st.slider("Mida Text Fracció", 6, 20, 9)
+        # --- Extres (Offsets) --- 
+        # 🟢 NOVETAT: Menú al final
+        with st.sidebar.expander("🛠️ Extres (Offsets)", expanded=False):
+            uv1_offset = st.number_input("Offset UV1 (mAU)", value=0.0, step=0.5, key='uv1_off')
+            uv2_offset = st.number_input("Offset UV2 (mAU)", value=0.0, step=0.5, key='uv2_off')
 
         # 3. Generació del Gràfic
         fig, ax1 = plt.subplots(figsize=(figwidth, 6))
@@ -240,23 +303,23 @@ if uploaded_file is not None:
         if x_tick_step > 0:
             ax1.xaxis.set_major_locator(ticker.MultipleLocator(x_tick_step))
 
-        # Plot Fraccions
+        # Plot Fraccions (Lògica Step)
         if show_fractions and "Fractions" in df.columns:
-            last_label_x = None
+            # Filtrem primer per rang X per no processar coses fora de visió
             fractions = df[(df['Fractions'].notna()) & (df['mL'].between(xmin, xmax))].reset_index()
+            
             for i in range(len(fractions)):
+                # Dibuixem la línia SEMPRE (totes les fraccions tenen línia)
                 x = fractions.loc[i, 'mL']
                 label = fractions.loc[i, 'Fractions']
-                
-                # Línia vermella
                 ax1.vlines(x, ymin, ymin + tick_h, color='red', linewidth=frac_lw, zorder=5)
                 
-                # Text
-                if i % 2 == 0 and (last_label_x is None or abs(x - (last_label_x or 0)) > 1.0):
+                # Etiquetem NOMÉS si compleix el STEP
+                # i+1 perquè l'humà compta des de 1, no 0 (opcional, però més intuïtiu si step=5 volem la 1, 6, 11...)
+                if i % frac_step == 0:
                     txt = 'W' if str(label).lower() == 'waste' else str(label)
                     ax1.text(x, ymin + tick_h + label_offset, txt, 
-                             ha='center', va='bottom', fontsize=font_frac, color='black', clip_on=True, zorder=6)
-                    last_label_x = x
+                             ha='center', va='bottom', fontsize=font_frac, color='black', clip_on=False, zorder=6)
 
         # Segon Eix Y
         ax2 = None
