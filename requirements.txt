@@ -2,6 +2,6 @@ streamlit
 pandas
 numpy
 matplotlib
-xmltodict
 openpyxl
-
+xmltodict
+git+https://github.com/Tsuchihashi-ryo/proteovis.git
