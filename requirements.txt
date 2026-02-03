@@ -2,4 +2,6 @@ streamlit
 pandas
 numpy
 matplotlib
+proteovis
+
 git+https://github.com/josocjo/Colab-akta-chromatogram-viewer.git
