@@ -9,11 +9,8 @@ import warnings
 import contextlib
 import io
 
-# Importació de la llibreria específica (s'ha d'instal·lar via requirements.txt)
-try:
-    import proteovis as pv
-except ImportError:
-    st.error("La llibreria 'proteovis' no està instal·lada correctly. Revisa el requirements.txt")
+# Importació normal (ara ja funcionarà perquè ho hem instal·lat via requirements)
+import proteovis as pv
 
 # ───────────────────────────────────────────────────────────────────────────────
 # CONFIGURACIÓ DE LA PÀGINA
@@ -24,11 +21,10 @@ st.title("🧬 Visualitzador de Cromatografia Akta")
 st.markdown("Puja els teus fitxers `.zip`, `.res` o `.result` per visualitzar-los.")
 
 # ───────────────────────────────────────────────────────────────────────────────
-# LÒGICA DE CÀRREGA DE DADES (Adaptada de la Cel·la 2)
+# LÒGICA DE CÀRREGA DE DADES
 # ───────────────────────────────────────────────────────────────────────────────
 
 def _xy_from_series_value(val):
-    # (El mateix codi auxiliar que tenies al Colab)
     def to_float_list(a):
         out = []
         for v in a:
@@ -58,7 +54,6 @@ def _xy_from_series_value(val):
     return None, None
 
 def carregar_fitxer(path):
-    # (Lògica original adaptada)
     ext = os.path.splitext(path)[1].lower()
     with contextlib.redirect_stdout(io.StringIO()), warnings.catch_warnings():
         warnings.filterwarnings("ignore", category=FutureWarning)
@@ -121,7 +116,7 @@ def carregar_fitxer(path):
 uploaded_file = st.file_uploader("Arrossega el fitxer aquí", type=['zip', 'res', 'result'])
 
 if uploaded_file is not None:
-    # Guardem el fitxer temporalment perquè pycorn necessita un path físic
+    # Guardem el fitxer temporalment
     with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp:
         tmp.write(uploaded_file.getvalue())
         tmp_path = tmp.name
@@ -130,12 +125,11 @@ if uploaded_file is not None:
         with st.spinner('Llegint fitxer...'):
             df, data = carregar_fitxer(tmp_path)
         
-        st.success(f"Fitxer carregat: {len(df)} punts de dades.")
+        st.success(f"✅ Fitxer carregat: {len(df)} punts de dades.")
 
-        # --- Sidebar Controls (Substitueix els widgets de Colab) ---
+        # --- Sidebar Controls ---
         st.sidebar.header("Paràmetres del Gràfic")
 
-        # Selecció de senyals
         cols = list(df.columns)
         possibles_uv = [k for k in cols if "UV" in k.upper()]
         possibles_y2 = [k for k in cols if k not in possibles_uv and k not in ["mL", "Fractions"]]
@@ -177,7 +171,7 @@ if uploaded_file is not None:
             font_labels = st.slider("Mida text etiquetes", 8, 30, 14)
             x_tick_step = st.slider("Pas del Tick Eix X", 0.5, 50.0, 5.0)
 
-        # --- Plotting (Matplotlib) ---
+        # --- Plotting ---
         fig, ax1 = plt.subplots(figsize=(10, 6))
 
         if y1a_label in df.columns:
@@ -215,11 +209,10 @@ if uploaded_file is not None:
         ax1.legend(loc='upper right')
         st.pyplot(fig)
 
-        # Descàrrega de dades processades
         st.markdown("### Dades processades")
         st.dataframe(df.head())
         
     except Exception as e:
         st.error(f"Error processant el fitxer: {e}")
     finally:
-        os.remove(tmp_path) # Neteja el fitxer temporal
+        os.remove(tmp_path)
