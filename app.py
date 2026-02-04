@@ -289,8 +289,13 @@ if uploaded_files:
                     base_mode = st.selectbox("Baseline", ["None", "Linear (Start-End)"])
                     st.markdown("#### Beer–Lambert law parameters")
                     path_l = st.number_input("optical path length (cm)", value=0.2, format="%.2f")
-                    e_molar = st.number_input("Ext. coefficient (M-1 cm-1) ", value=50000.0, format="%.1f")
-                    e_mass = None
+                    c_type = "Molar"
+                    if c_type == "Abs 0.1%":
+                        e_mass = st.number_input("Abs 0.1%", value=1.0, format="%.3f")
+                        e_molar = None
+                    else:
+                        e_molar = st.number_input("Ext. coefficient (M-1 cm-1) ", value=50000.0, format="%.1f")
+                        e_mass = None
                     mw = st.number_input("MW (Da)", value=10000.0, format="%.1f")
                     decs = st.number_input("Decimals", value=4, min_value=1, max_value=8)
 
@@ -472,8 +477,6 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
-
-
 
 
 
