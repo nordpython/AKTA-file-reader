@@ -10,14 +10,11 @@ import contextlib
 import io
 
 # ───────────────────────────────────────────────────────────────────────────────
-# 🚑 PARCHE D'EMERGÈNCIA PER A NUMPY 2.0
+# 🚑 PARCHE NUMPY 2.0 (Fix per error 'trapz')
 # ───────────────────────────────────────────────────────────────────────────────
-# La llibreria 'proteovis' busca np.trapz, però NumPy 2.0 l'ha eliminat.
-# Això redirigeix la crida antiga a la nova funció np.trapezoid.
 if not hasattr(np, 'trapz'):
     np.trapz = np.trapezoid
 
-# Importació de la llibreria després del parche
 import proteovis as pv
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -27,11 +24,14 @@ st.set_page_config(page_title="Akta Viewer Pro", layout="wide", page_icon="🧬"
 
 st.markdown("""
 <style>
-    .stSidebar {
-        background-color: #f0f2f6;
-    }
-    .main .block-container {
-        padding-top: 2rem;
+    .stSidebar { background-color: #f0f2f6; }
+    .main .block-container { padding-top: 2rem; }
+    .metric-box {
+        background-color: #f8f9fa;
+        border: 1px solid #dee2e6;
+        padding: 15px;
+        border-radius: 5px;
+        margin-bottom: 10px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -39,35 +39,32 @@ st.markdown("""
 st.title("🧬 Visualitzador de Cromatografia Akta (Versió Completa)")
 
 # ───────────────────────────────────────────────────────────────────────────────
-# FUNCIONS DE CÀRREGA DE DADES
+# FUNCIONS AUXILIARS
 # ───────────────────────────────────────────────────────────────────────────────
 def _xy_from_series_value(val):
     def to_float_list(a):
         out = []
         for v in a:
-            try:
-                out.append(float(v))
-            except Exception:
-                return None
+            try: out.append(float(v))
+            except: return None
         return out
+    
     if isinstance(val, dict) and 'x' in val and 'y' in val:
         x = to_float_list(val['x']); y = to_float_list(val['y'])
         if x is None or y is None or len(x) < 2 or len(x) != len(y): return None, None
         return np.asarray(x, float), np.asarray(y, float)
+    
+    # Suport per llistes de tuples o diccionaris antics
     if isinstance(val, (list, tuple)) and val:
         first = val[0]
         if isinstance(first, (list, tuple)) and len(first) == 2:
             xs, ys = [], []
             for p in val:
-                try:
-                    xs.append(float(p[0])); ys.append(float(p[1]))
-                except Exception: return None, None
+                try: xs.append(float(p[0])); ys.append(float(p[1]))
+                except: return None, None
             if len(xs) < 2: return None, None
             return np.asarray(xs, float), np.asarray(ys, float)
-        if isinstance(first, dict) and 'x' in first and 'y' in first:
-            xs = to_float_list([d['x'] for d in val]); ys = to_float_list([d['y'] for d in val])
-            if xs is None or ys is None or len(xs) < 2 or len(xs) != len(ys): return None, None
-            return np.asarray(xs, float), np.asarray(ys, float)
+            
     return None, None
 
 def carregar_fitxer(path):
@@ -82,9 +79,8 @@ def carregar_fitxer(path):
             parsers = [p for p in parsers if p is not None]
             data = None
             for Parser in parsers:
-                try:
-                    obj = Parser(path); obj.load(); data = obj; break
-                except Exception: pass
+                try: obj = Parser(path); obj.load(); data = obj; break
+                except: pass
             if data is None: raise RuntimeError("No s'ha pogut llegir el .res")
         else:
             raise ValueError(f"Extensió no suportada: {ext}")
@@ -140,9 +136,7 @@ if uploaded_file is not None:
     try:
         df, data, file_name = carregar_fitxer(tmp_path)
         
-        # ───────────────────────────────────────────────────────────────────────────────
-        # LÒGICA DE PERSISTÈNCIA (MEMORY)
-        # ───────────────────────────────────────────────────────────────────────────────
+        # --- Inicialització Memòria ---
         current_uv1_off = st.session_state.get('uv1_off', 0.0)
         current_uv2_off = st.session_state.get('uv2_off', 0.0)
         
@@ -150,16 +144,12 @@ if uploaded_file is not None:
         possibles_uv = [k for k in cols if "UV" in k.upper()]
         possibles_y2 = [k for k in cols if k not in possibles_uv and k not in ["mL", "Fractions", "260/280"]]
         
-        # Càlcul automàtic de rangs (Auto-Calc inicial)
+        # Auto-Càlcul inicial Rangs
         calc_min_y, calc_max_y = 0.0, 100.0
-        
         default_y1 = possibles_uv[0] if possibles_uv else None
-        default_y2 = possibles_uv[2] if len(possibles_uv)>2 else (possibles_uv[1] if len(possibles_uv)>1 else None)
         
         temp_data = []
         if default_y1 in df.columns: temp_data.append(df[default_y1] + current_uv1_off)
-        if default_y2 in df.columns: temp_data.append(df[default_y2] + current_uv2_off)
-        
         if temp_data:
             combined = pd.concat(temp_data)
             calc_min_y = float(combined.min()) - 4.0
@@ -167,105 +157,78 @@ if uploaded_file is not None:
         
         ml_min_val, ml_max_val = float(df["mL"].min()), float(df["mL"].max())
 
-        # Inicialització de memòria (Només si no existeix, per respectar preferències de l'usuari)
-        if 'ymin_input' not in st.session_state:
-            st.session_state.ymin_input = calc_min_y
-        if 'ymax_input' not in st.session_state:
-            st.session_state.ymax_input = calc_max_y
-        if 'xmin_input' not in st.session_state:
-            st.session_state.xmin_input = ml_min_val
-        if 'xmax_input' not in st.session_state:
-            st.session_state.xmax_input = ml_max_val
+        if 'ymin_input' not in st.session_state: st.session_state.ymin_input = calc_min_y
+        if 'ymax_input' not in st.session_state: st.session_state.ymax_input = calc_max_y
+        if 'xmin_input' not in st.session_state: st.session_state.xmin_input = ml_min_val
+        if 'xmax_input' not in st.session_state: st.session_state.xmax_input = ml_max_val
 
         # ───────────────────────────────────────────────────────────────────────────────
-        # SIDEBAR CONTROLS
+        # SIDEBAR
         # ───────────────────────────────────────────────────────────────────────────────
-        st.sidebar.header("⚙️ Configuració del Gràfic")
+        st.sidebar.header("⚙️ Configuració")
         
-        with st.sidebar.expander("📊 Senyals i Colors", expanded=True):
+        with st.sidebar.expander("📊 Senyals", expanded=True):
             c1, c2 = st.columns(2)
-            y1a_label = c1.selectbox("UV 1 (Principal)", options=possibles_uv, index=0 if possibles_uv else 0, key='sel_uv1')
-            y1a_color = c2.color_picker("Color UV1", "#1f77b4", key='col_uv1')
+            y1a_label = c1.selectbox("UV 1", options=possibles_uv, index=0, key='sel_uv1')
+            y1a_color = c2.color_picker("Color", "#1f77b4", key='col_uv1')
             
             c3, c4 = st.columns(2)
             y1b_label = c3.selectbox("UV 2", options=[""] + possibles_uv, index=2 if len(possibles_uv)>1 else 0, key='sel_uv2')
-            y1b_color = c4.color_picker("Color UV2", "#ff0000", key='col_uv2')
+            y1b_color = c4.color_picker("Color", "#ff0000", key='col_uv2')
             
             c5, c6 = st.columns(2)
-            y2_label = c5.selectbox("Eix Y Secundari", options=[""] + possibles_y2, key='sel_y2')
-            y2_color = c6.color_picker("Color Y2", "#2ca02c", key='col_y2')
+            y2_label = c5.selectbox("Y Secundari", options=[""] + possibles_y2, key='sel_y2')
+            y2_color = c6.color_picker("Color", "#2ca02c", key='col_y2')
 
-        with st.sidebar.expander("📏 Mides i Rangs (Zoom)", expanded=True):
-            # Dimensions
-            st.markdown("**Dimensions**")
+        with st.sidebar.expander("📏 Zoom i Rangs", expanded=True):
             cd1, cd2 = st.columns(2)
             figwidth = cd1.number_input("Amplada", value=14, step=1, key='fig_w')
             figheight = cd2.number_input("Altura", value=6, step=1, key='fig_h')
-
-            st.markdown("---")
             
-            # EIX X
-            st.markdown("**Eix X (mL)**")
+            st.markdown("---")
             col_x1, col_x2 = st.columns(2)
-            xmin = col_x1.number_input("Mínim X", step=1.0, key='xmin_input')
-            xmax = col_x2.number_input("Màxim X", step=1.0, key='xmax_input')
-            x_tick_step = st.number_input("Pas dels Ticks X (mL)", value=5.0, min_value=0.1, step=0.5, key='x_step')
+            xmin = col_x1.number_input("Min X (mL)", step=1.0, key='xmin_input')
+            xmax = col_x2.number_input("Max X (mL)", step=1.0, key='xmax_input')
+            x_tick_step = st.number_input("Pas Ticks X", value=5.0, min_value=0.1, step=0.5, key='x_step')
 
-            st.markdown("---")
-            
-            # EIX Y
-            st.markdown("**Eix Y (Absorbància)**")
             col_y1, col_y2 = st.columns(2)
-            # Aquí es carreguen els valors autocalculats si és el primer cop, o els que ha tocat l'usuari
-            ymin = col_y1.number_input("Mínim Y", step=5.0, format="%.1f", key='ymin_input')
-            ymax = col_y2.number_input("Màxim Y", step=5.0, format="%.1f", key='ymax_input')
+            ymin = col_y1.number_input("Min Y (mAU)", step=5.0, format="%.1f", key='ymin_input')
+            ymax = col_y2.number_input("Max Y (mAU)", step=5.0, format="%.1f", key='ymax_input')
             
-            # Segon Eix
             y2_ymin, y2_ymax = 0.0, 100.0
             if y2_label:
-                st.markdown("**Eix Y Secundari**")
+                st.markdown("**Eix Secundari**")
                 c_y2_1, c_y2_2 = st.columns(2)
                 if 'y2_max_input' not in st.session_state:
-                     y2_curr_max = float(df[y2_label].max())
-                     st.session_state.y2_max_input = y2_curr_max + 10.0
-                
-                y2_ymin = c_y2_1.number_input("Mínim Y2", value=0.0, key='y2_min_input')
-                y2_ymax = c_y2_2.number_input("Màxim Y2", key='y2_max_input')
+                     st.session_state.y2_max_input = float(df[y2_label].max()) + 10.0
+                y2_ymin = c_y2_1.number_input("Min Y2", value=0.0, key='y2_min_input')
+                y2_ymax = c_y2_2.number_input("Max Y2", key='y2_max_input')
 
         with st.sidebar.expander("🧪 Fraccions", expanded=False):
             show_fractions = st.checkbox("Mostrar Fraccions", value=True, key='show_fracs')
-            frac_step = st.number_input("Etiquetar cada N fraccions", value=1, min_value=1, step=1, key='frac_step')
-            
-            default_tick_h = (ymax - ymin) * 0.1
-            tick_h = st.slider("Alçada marca vermella", 1.0, 300.0, float(default_tick_h) if default_tick_h > 0 else 10.0, key='frac_h')
-            frac_lw = st.slider("Gruix línia", 0.2, 5.0, 1.0, key='frac_lw')
-            
-            # Mínim 0.0
-            label_offset = st.number_input("Posició Text (Vertical)", min_value=0.0, value=2.0, step=0.5, key='frac_offset')
-            font_frac = st.slider("Mida Text Fracció", 6, 20, 9, key='frac_font')
+            frac_step = st.number_input("Etiqueta cada N", value=1, min_value=1, key='frac_step')
+            tick_h = st.slider("Alçada", 1.0, 300.0, float((ymax-ymin)*0.1), key='frac_h')
+            label_offset = st.number_input("Posició Text", min_value=0.0, value=2.0, step=0.5, key='frac_offset')
+            font_frac = st.slider("Mida Text", 6, 20, 9, key='frac_font')
 
-        with st.sidebar.expander("🎨 Estils de Text", expanded=False):
-            font_title = st.slider("Mida Títol", 10, 40, 16, key='f_title')
-            font_labels = st.slider("Mida Etiquetes Eixos", 8, 30, 12, key='f_labels')
-            font_ticks = st.slider("Mida Números Eixos", 8, 20, 10, key='f_ticks')
-            font_legend = st.slider("Mida Llegenda", 8, 20, 10, key='f_legend')
+        with st.sidebar.expander("🎨 Estils", expanded=False):
+            font_title = st.slider("Títol", 10, 40, 16, key='f_title')
+            font_labels = st.slider("Etiquetes", 8, 30, 12, key='f_labels')
+            font_ticks = st.slider("Ticks", 8, 20, 10, key='f_ticks')
+            font_legend = st.slider("Llegenda", 8, 20, 10, key='f_legend')
 
-        # OFFSETS AL FINAL
-        with st.sidebar.expander("🛠️ Extres (Offsets)", expanded=False):
-            uv1_offset = st.number_input("Offset UV1 (mAU)", step=0.5, key='uv1_off')
-            uv2_offset = st.number_input("Offset UV2 (mAU)", step=0.5, key='uv2_off')
+        with st.sidebar.expander("🛠️ Extres", expanded=False):
+            uv1_offset = st.number_input("Offset UV1", step=0.5, key='uv1_off')
+            uv2_offset = st.number_input("Offset UV2", step=0.5, key='uv2_off')
 
         # ───────────────────────────────────────────────────────────────────────────────
-        # GENERACIÓ DEL GRÀFIC
+        # GRÀFIC
         # ───────────────────────────────────────────────────────────────────────────────
         fig, ax1 = plt.subplots(figsize=(figwidth, figheight))
 
-        # Plot UV1
-        if y1a_label and y1a_label in df.columns:
+        if y1a_label in df.columns:
             ax1.plot(df["mL"], df[y1a_label] + uv1_offset, label=y1a_label, color=y1a_color)
-        
-        # Plot UV2
-        if y1b_label and y1b_label in df.columns and y1b_label != y1a_label:
+        if y1b_label in df.columns and y1b_label != y1a_label:
             ax1.plot(df["mL"], df[y1b_label] + uv2_offset, label=y1b_label, color=y1b_color)
 
         ax1.set_xlim(xmin, xmax)
@@ -278,21 +241,22 @@ if uploaded_file is not None:
         if x_tick_step > 0:
             ax1.xaxis.set_major_locator(ticker.MultipleLocator(x_tick_step))
 
-        # Plot Fraccions
+        # Fraccions
+        fracs_in_range = []
         if show_fractions and "Fractions" in df.columns:
             fractions = df[(df['Fractions'].notna()) & (df['mL'].between(xmin, xmax))].reset_index()
-            
             for i in range(len(fractions)):
                 x = fractions.loc[i, 'mL']
                 label = fractions.loc[i, 'Fractions']
-                ax1.vlines(x, ymin, ymin + tick_h, color='red', linewidth=frac_lw, zorder=5)
+                fracs_in_range.append(label)
                 
+                ax1.vlines(x, ymin, ymin + tick_h, color='red', linewidth=1, zorder=5)
                 if i % frac_step == 0:
                     txt = 'W' if str(label).lower() == 'waste' else str(label)
-                    ax1.text(x, ymin + tick_h + label_offset, txt, 
-                             ha='center', va='bottom', fontsize=font_frac, color='black', clip_on=False, zorder=6)
+                    ax1.text(x, ymin + tick_h + label_offset, txt, ha='center', va='bottom', 
+                             fontsize=font_frac, color='black', clip_on=False, zorder=6)
 
-        # Segon Eix Y
+        # Eix 2
         ax2 = None
         if y2_label and y2_label in df.columns:
             ax2 = ax1.twinx()
@@ -306,11 +270,92 @@ if uploaded_file is not None:
         ax1.legend(handles1 + handles2, labels1 + labels2, loc='upper right', fontsize=font_legend)
 
         st.pyplot(fig)
-        
-        with st.expander("📋 Veure Dades en Taula"):
+
+        # ───────────────────────────────────────────────────────────────────────────────
+        # MÒDUL D'INTEGRACIÓ DE PICS
+        # ───────────────────────────────────────────────────────────────────────────────
+        with st.expander("🧮 Càlculs i Integració de Pics", expanded=True):
+            col_calc1, col_calc2 = st.columns([1, 2])
+            
+            with col_calc1:
+                st.markdown("#### Paràmetres")
+                # Rang d'integració (per defecte el zoom actual)
+                int_start = st.number_input("Inici Integració (mL)", value=xmin, step=0.5)
+                int_end = st.number_input("Final Integració (mL)", value=xmax, step=0.5)
+                
+                target_signal = st.selectbox("Senyal a Integrar", [y1a_label, y1b_label])
+                baseline_mode = st.selectbox("Correcció Base", ["Cap", "Lineal (Inici-Fi)"])
+                
+                st.markdown("#### Conversió a Massa")
+                ext_coeff = st.number_input("Coef. Extinció (ε) [(mg/mL)⁻¹ cm⁻¹]", value=1.0, format="%.3f")
+                path_length = st.number_input("Camí Òptic (cm)", value=0.2, format="%.2f") # 2mm és típic en AKTA
+                
+            with col_calc2:
+                st.markdown("#### Resultats")
+                if target_signal and target_signal in df.columns:
+                    # Filtrar dades
+                    mask = (df["mL"] >= int_start) & (df["mL"] <= int_end)
+                    sub_df = df[mask].copy()
+                    
+                    if not sub_df.empty:
+                        x_vals = sub_df["mL"].values
+                        # Sumem offset per si l'usuari l'ha tocat
+                        offset_val = uv1_offset if target_signal == y1a_label else uv2_offset
+                        y_vals = sub_df[target_signal].values + offset_val
+                        
+                        # Baseline
+                        if baseline_mode == "Lineal (Inici-Fi)":
+                            # Recta entre el primer i últim punt
+                            slope = (y_vals[-1] - y_vals[0]) / (x_vals[-1] - x_vals[0])
+                            baseline = y_vals[0] + slope * (x_vals - x_vals[0])
+                            y_processed = y_vals - baseline
+                        else:
+                            y_processed = y_vals
+                            
+                        # Integració (mAU * mL)
+                        area = np.trapz(y_processed, x_vals)
+                        
+                        # Càlcul de Massa
+                        # Area (mAU*mL) / 1000 = AU*mL
+                        # Mass (mg) = (Area_AU_mL) / (epsilon * path_length)
+                        mass_mg = 0
+                        if ext_coeff > 0 and path_length > 0:
+                            mass_mg = (area / 1000.0) / (ext_coeff * path_length)
+                        
+                        # Fraccions afectades
+                        fracs_inside = df[(df['Fractions'].notna()) & (df['mL'].between(int_start, int_end))]['Fractions'].tolist()
+                        fracs_str = ", ".join([str(f) for f in fracs_inside]) if fracs_inside else "Cap"
+
+                        # Display
+                        st.markdown(f"""
+                        <div class="metric-box">
+                            <h3 style="margin:0; color:#2c3e50;">Àrea Total: {area:.2f} mAU*mL</h3>
+                            <p style="margin:0; color:#7f8c8d;">(Base corregida: {baseline_mode})</p>
+                        </div>
+                        """, unsafe_allow_html=True)
+                        
+                        c_res1, c_res2 = st.columns(2)
+                        c_res1.metric("Massa Total Estimada", f"{mass_mg:.4f} mg")
+                        c_res2.metric("Volum del Pic", f"{int_end - int_start:.2f} mL")
+                        
+                        st.info(f"🧪 **Fraccions en aquest pic:** {fracs_str}")
+                        
+                        # Debug gràfic petit de l'àrea
+                        with st.expander("Veure àrea integrada (Preview)"):
+                            fig_area, ax_area = plt.subplots(figsize=(6, 2))
+                            ax_area.plot(x_vals, y_vals, 'b-', label="Original")
+                            if baseline_mode == "Lineal (Inici-Fi)":
+                                ax_area.plot(x_vals, baseline, 'k--', label="Base", alpha=0.5)
+                            ax_area.fill_between(x_vals, y_vals, baseline if baseline_mode == "Lineal (Inici-Fi)" else 0, alpha=0.3, color='green')
+                            st.pyplot(fig_area)
+                            
+                    else:
+                        st.warning("No hi ha dades en aquest rang.")
+
+        with st.expander("📋 Dades Brutes"):
             st.dataframe(df)
 
     except Exception as e:
-        st.error(f"❌ Error processant el fitxer: {e}")
+        st.error(f"❌ Error: {e}")
     finally:
         os.remove(tmp_path)
