@@ -114,32 +114,33 @@ def carregar_fitxer(path):
         with np.errstate(divide="ignore", invalid="ignore"):
             df["260/280"] = df["UV 2_260"] / df["UV 1_280"]
 
-    return df, data, os.path.basename(path)
+    return df, data
 
 # ───────────────────────────────────────────────────────────────────────────────
 # UI PRINCIPAL
 # ───────────────────────────────────────────────────────────────────────────────
 
-# 🟢 CANVI 1: 'accept_multiple_files=True' per permetre pujar-ne molts
 uploaded_files = st.file_uploader("📂 Arrossega fitxers (.zip, .res, .result)", 
                                   type=['zip', 'res', 'result'], 
                                   accept_multiple_files=True)
 
 if uploaded_files:
-    # Llista per guardar tots els datasets carregats
     all_datasets = []
     
-    # Bucle de càrrega
+    # Bucle de càrrega conservant el nom original
     for up_file in uploaded_files:
+        original_name = up_file.name # Guardem el nom original aquí
+        
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(up_file.name)[1]) as tmp:
             tmp.write(up_file.getvalue())
             tmp_path = tmp.name
         
         try:
-            df, data, fname = carregar_fitxer(tmp_path)
-            all_datasets.append({'name': fname, 'df': df})
+            # Passem el fitxer a carregar, però guardem el nom original a la llista
+            df, data = carregar_fitxer(tmp_path)
+            all_datasets.append({'name': original_name, 'df': df})
         except Exception as e:
-            st.error(f"Error carregant {up_file.name}: {e}")
+            st.error(f"Error carregant {original_name}: {e}")
         finally:
             if os.path.exists(tmp_path):
                 os.remove(tmp_path)
@@ -148,16 +149,20 @@ if uploaded_files:
         st.stop()
 
     # ───────────────────────────────────────────────────────────────────────────
-    # MODE 1: UN SOL FITXER (La teva visualització detallada original)
+    # MODE 1: UN SOL FITXER
     # ───────────────────────────────────────────────────────────────────────────
     if len(all_datasets) == 1:
         dataset = all_datasets[0]
         df = dataset['df']
-        file_name = dataset['name']
+        original_name = dataset['name']
         
-        # --- (Aquí va tota la lògica "Pro" que ja tenies) ---
+        # --- Sidebar Controls ---
+        st.sidebar.header("⚙️ Configuració (Mode Detall)")
         
-        # 1. Recuperem memòria
+        # 🟢 NOVETAT: Nom Editable
+        custom_name = st.sidebar.text_input("📝 Nom del Gràfic (Llegenda)", value=original_name)
+        
+        # Recuperem memòria
         current_uv1_off = st.session_state.get('uv1_off', 0.0)
         current_uv2_off = st.session_state.get('uv2_off', 0.0)
         
@@ -185,8 +190,6 @@ if uploaded_files:
         if 'xmin_input' not in st.session_state: st.session_state.xmin_input = ml_min_val
         if 'xmax_input' not in st.session_state: st.session_state.xmax_input = ml_max_val
 
-        st.sidebar.header("⚙️ Configuració (Mode Detall)")
-        
         with st.sidebar.expander("📊 Senyals i Colors", expanded=True):
             c1, c2 = st.columns(2)
             y1a_label = c1.selectbox("UV 1 (Principal)", options=possibles_uv, index=0 if possibles_uv else 0, key='sel_uv1')
@@ -249,7 +252,10 @@ if uploaded_files:
         # PLOT SINGLE
         fig, ax1 = plt.subplots(figsize=(figwidth, figheight))
         if y1a_label and y1a_label in df.columns:
-            ax1.plot(df["mL"], df[y1a_label] + uv1_offset, label=y1a_label, color=y1a_color)
+            # Fem servir custom_name a la llegenda
+            label_text = f"{y1a_label} ({custom_name})" if y1b_label else custom_name
+            ax1.plot(df["mL"], df[y1a_label] + uv1_offset, label=label_text, color=y1a_color)
+            
         if y1b_label and y1b_label in df.columns and y1b_label != y1a_label:
             ax1.plot(df["mL"], df[y1b_label] + uv2_offset, label=y1b_label, color=y1b_color)
         
@@ -258,7 +264,7 @@ if uploaded_files:
         ax1.set_xlabel("Elution volume (mL)", fontsize=font_labels)
         ax1.set_ylabel("Absorbance (mAU)", fontsize=font_labels)
         ax1.tick_params(axis='both', labelsize=font_ticks)
-        ax1.set_title(f"Chromatogram – {file_name}", fontsize=font_title)
+        ax1.set_title(f"Chromatogram – {custom_name}", fontsize=font_title)
         if x_tick_step > 0: ax1.xaxis.set_major_locator(ticker.MultipleLocator(x_tick_step))
 
         if show_fractions and "Fractions" in df.columns:
@@ -291,14 +297,21 @@ if uploaded_files:
     else:
         st.success(f"Mode Comparació activat: {len(all_datasets)} fitxers carregats.")
         
-        # Agafem les columnes del primer fitxer com a referència
         ref_df = all_datasets[0]['df']
         ref_cols = list(ref_df.columns)
         possibles_uv_comp = [k for k in ref_cols if "UV" in k.upper()]
         
         st.sidebar.header("⚙️ Configuració (Comparació)")
         
-        # Selecció del senyal a comparar (ex: UV 280)
+        # 🟢 NOVETAT: Edició de noms en massa
+        st.sidebar.markdown("### 🏷️ Editar Noms (Llegenda)")
+        renamed_datasets = []
+        for i, d in enumerate(all_datasets):
+            # Input de text per canviar el nom de cada fitxer
+            new_name = st.sidebar.text_input(f"Fitxer {i+1}", value=d['name'], key=f"rename_{i}")
+            renamed_datasets.append({'name': new_name, 'df': d['df']})
+        
+        st.sidebar.markdown("---")
         signal_to_compare = st.sidebar.selectbox("Quin senyal vols comparar?", options=possibles_uv_comp, index=0)
         
         with st.sidebar.expander("📏 Mides i Rangs", expanded=True):
@@ -307,13 +320,11 @@ if uploaded_files:
             figwidth_c = cd1.number_input("Amplada", value=14, step=1, key='fig_w_comp')
             figheight_c = cd2.number_input("Altura", value=6, step=1, key='fig_h_comp')
             
-            # Càlcul automàtic de límits globals
-            all_max_x = max([d['df']['mL'].max() for d in all_datasets])
-            all_min_x = min([d['df']['mL'].min() for d in all_datasets])
+            all_max_x = max([d['df']['mL'].max() for d in renamed_datasets])
+            all_min_x = min([d['df']['mL'].min() for d in renamed_datasets])
             
-            # Busquem el Y max de tots els datasets pel senyal triat
             max_y_vals = []
-            for d in all_datasets:
+            for d in renamed_datasets:
                 if signal_to_compare in d['df'].columns:
                     max_y_vals.append(d['df'][signal_to_compare].max())
             all_max_y = max(max_y_vals) if max_y_vals else 100
@@ -329,8 +340,7 @@ if uploaded_files:
         # PLOT COMPARATIU
         fig, ax = plt.subplots(figsize=(figwidth_c, figheight_c))
         
-        # Bucle per pintar cada fitxer
-        for dataset in all_datasets:
+        for dataset in renamed_datasets:
             dname = dataset['name']
             ddf = dataset['df']
             
