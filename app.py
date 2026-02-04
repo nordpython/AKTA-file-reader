@@ -283,8 +283,8 @@ if uploaded_files:
                 c_c1, c_c2 = st.columns([1, 2])
                 with c_c1:
                     st.markdown("#### Parameters")
-                    int_start = st.number_input("Start", value=xmin, step=0.5)
-                    int_end = st.number_input("End", value=xmax, step=0.5)
+                    int_start = st.number_input("Start (mL)", value=xmin, step=0.5)
+                    int_end = st.number_input("End (mL)", value=xmax, step=0.5)
                     target_sig = st.selectbox("Signal", [y1a_label, y1b_label])
                     base_mode = st.selectbox("Baseline", ["None", "Linear (Start-End)"])
                     st.markdown("#### Protein")
@@ -477,5 +477,6 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
 
 
