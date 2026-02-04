@@ -281,28 +281,31 @@ if uploaded_files:
             # --- CALCULATIONS ---
             with st.expander("🧮 Calculations & Peak Integration", expanded=True):
                 c_c1, c_c2 = st.columns([1, 2])
+                
+                # COLUMNA ESQUERRA: PARÀMETRES
                 with c_c1:
                     st.markdown("#### Parameters")
                     int_start = st.number_input("Start (mL)", value=xmin, step=0.5)
                     int_end = st.number_input("End (mL)", value=xmax, step=0.5)
                     target_sig = st.selectbox("Signal", [y1a_label, y1b_label])
                     base_mode = st.selectbox("Baseline", ["None", "Linear (Start-End)"])
-                    st.markdown("#### Beer–Lambert law parameters")
-                    path_l = st.number_input("optical path length (cm)", value=0.2, format="%.2f")
-                    c_type = st.radio("Type of Ext. coefficient ", ["Abs 0.1%", "Molar"],index=1, help="Sum Molar for complexes.")
-                    if c_type == "Abs 0.1%":
-                        e_mass = st.number_input("Abs 0.1%", value=1.0, format="%.3f")
-                        e_molar = None
-                    else:
-                        e_molar = st.number_input("Ext. coefficient (M-1 cm-1) ", value=50000.0, format="%.1f")
-                        e_mass = None
-                    mw = st.number_input("MW (Da)", value=10000.0, format="%.1f")
+                    
+                    st.markdown("#### Protein Data")
+                    path_l = st.number_input("Path Length (cm)", value=0.2, format="%.2f")
+                    
+                    # NOU: Només demanem el Molar directament
+                    e_molar = st.number_input("Molar Ext. Coeff. (ε)", value=349670.0, format="%.1f", 
+                                            help="Units: M⁻¹ cm⁻¹. Sum values for complexes.")
+                    
+                    mw = st.number_input("Molecular Weight (Da)", value=363797.0, format="%.1f")
                     decs = st.number_input("Decimals", value=4, min_value=1, max_value=8)
 
+                # COLUMNA DRETA: RESULTATS
                 with c_c2:
                     if target_sig in df.columns:
                         sub = df[(df["mL"] >= int_start) & (df["mL"] <= int_end)].copy()
                         if not sub.empty:
+                            # Preparar dades i Baseline
                             y_vals = sub[target_sig].values + (uv1_offset if target_sig==y1a_label else uv2_offset)
                             if base_mode == "Linear (Start-End)":
                                 slope = (y_vals[-1] - y_vals[0]) / (sub["mL"].values[-1] - sub["mL"].values[0])
@@ -311,26 +314,33 @@ if uploaded_files:
                             else:
                                 y_proc = y_vals
                             
+                            # Càlculs bàsics
                             avg_au = np.mean(y_proc) / 1000.0
                             area_au = np.trapz(y_proc, sub["mL"].values) / 1000.0
                             
+                            # Càlculs de Concentració i Massa (Només Molar)
                             c_mg = 0.0
-                            if path_l > 0:
-                                if c_type == "Abs 0.1%": c_mg = avg_au / (e_mass * path_l)
-                                else: c_mg = (avg_au / (e_molar * path_l)) * mw
-                            
-                            c_um = (c_mg / mw) * 1e6 if mw > 0 else 0.0
+                            c_um = 0.0
                             m_mg = 0.0
-                            if path_l > 0:
-                                if c_type == "Abs 0.1%": m_mg = area_au / (e_mass * path_l)
-                                else: m_mg = (area_au * mw) / (e_molar * path_l)
+                            
+                            if path_l > 0 and e_molar > 0 and mw > 0:
+                                # 1. Molaritat = Abs / (epsilon * l)
+                                molarity = avg_au / (e_molar * path_l)
+                                # 2. mg/mL = Molaritat * MW * 1000 / 1000 ... es cancel·la -> g/L = mg/mL
+                                c_mg = molarity * mw
+                                # 3. uM = Molaritat * 10^6
+                                c_um = molarity * 1e6
+                                # 4. Massa = (Area * MW) / (epsilon * l)
+                                m_mg = (area_au * mw) / (e_molar * path_l)
 
+                            # Mostrar Resultats Globals
                             c1, c2, c3, c4 = st.columns(4)
                             c1.metric("Mass", f"{m_mg:.{decs}f} mg")
                             c2.metric("Vol", f"{int_end-int_start:.2f} mL")
                             c3.metric("Conc.", f"{c_mg:.{decs}f} mg/mL")
                             c4.metric("Conc.", f"{c_um:.{decs}f} µM")
 
+                            # Detall per Fracció
                             st.markdown("#### Fraction Details")
                             if "Fractions" in df.columns:
                                 f_idxs = df[df['Fractions'].notna()].index
@@ -340,6 +350,7 @@ if uploaded_files:
                                     idx_e = f_idxs[i+1] if i < len(f_idxs)-1 else df.index[-1]
                                     ov_s = max(df.loc[idx_s, "mL"], int_start)
                                     ov_e = min(df.loc[idx_e, "mL"], int_end)
+                                    
                                     if ov_s < ov_e:
                                         f_sub = df[(df["mL"] >= ov_s) & (df["mL"] <= ov_e)]
                                         if not f_sub.empty:
@@ -349,11 +360,14 @@ if uploaded_files:
                                                 fy = fy - fb
                                             
                                             f_au = np.mean(fy) / 1000.0
+                                            
+                                            # Càlcul Fracció (Només Molar)
                                             f_cmg = 0.0
-                                            if path_l > 0:
-                                                if c_type == "Abs 0.1%": f_cmg = f_au / (e_mass * path_l)
-                                                else: f_cmg = (f_au / (e_molar * path_l)) * mw
-                                            f_cum = (f_cmg / mw) * 1e6 if mw > 0 else 0.0
+                                            f_cum = 0.0
+                                            if path_l > 0 and e_molar > 0 and mw > 0:
+                                                f_molar = f_au / (e_molar * path_l)
+                                                f_cmg = f_molar * mw
+                                                f_cum = f_molar * 1e6
                                             
                                             f_list.append({
                                                 "Fraction": df.loc[idx_s, "Fractions"],
@@ -363,10 +377,7 @@ if uploaded_files:
                                                 "µM": f"{f_cum:.{decs}f}"
                                             })
                                 if f_list: st.dataframe(pd.DataFrame(f_list), use_container_width=True)
-                                else: st.info("No fractions.")
-        except Exception as e: st.error(f"Error: {e}")
-        finally: os.remove(tmp_path)
-
+                                else: st.info("No fractions inside integration range.")
     # ───────────────────────────────────────────────────────────────────────────
     # MODE 2: MULTI-FILE OVERLAY
     # ───────────────────────────────────────────────────────────────────────────
@@ -477,6 +488,7 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
 
 
 
