@@ -289,7 +289,7 @@ if uploaded_files:
                     base_mode = st.selectbox("Baseline", ["None", "Linear (Start-End)"])
                     st.markdown("#### Protein")
                     path_l = st.number_input("Path (cm)", value=0.2, format="%.2f")
-                    c_type = st.radio("Type", ["Abs 0.1%", "Molar"], help="Sum Molar for complexes.")
+                    c_type = st.radio("Type", ["Abs 0.1%", "Molar"],index=1, help="Sum Molar for complexes.")
                     if c_type == "Abs 0.1%":
                         e_mass = st.number_input("Abs 0.1%", value=1.0, format="%.3f")
                         e_molar = None
@@ -477,4 +477,5 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
 
