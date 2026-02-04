@@ -8,10 +8,20 @@ import matplotlib.ticker as ticker
 import warnings
 import contextlib
 import io
+
+# ───────────────────────────────────────────────────────────────────────────────
+# 🚑 PARCHE D'EMERGÈNCIA PER A NUMPY 2.0
+# ───────────────────────────────────────────────────────────────────────────────
+# La llibreria 'proteovis' busca np.trapz, però NumPy 2.0 l'ha eliminat.
+# Això redirigeix la crida antiga a la nova funció np.trapezoid.
+if not hasattr(np, 'trapz'):
+    np.trapz = np.trapezoid
+
+# Importació de la llibreria després del parche
 import proteovis as pv
 
 # ───────────────────────────────────────────────────────────────────────────────
-# PAGE CONFIGURATION
+# CONFIGURACIÓ DE LA PÀGINA
 # ───────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Akta Viewer Pro", layout="wide", page_icon="🧬")
 
@@ -26,10 +36,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🧬 Akta Chromatogram Viewer")
+st.title("🧬 Visualitzador de Cromatografia Akta (Versió Completa)")
 
 # ───────────────────────────────────────────────────────────────────────────────
-# DATA LOADING FUNCTIONS
+# FUNCIONS DE CÀRREGA DE DADES
 # ───────────────────────────────────────────────────────────────────────────────
 def _xy_from_series_value(val):
     def to_float_list(a):
@@ -75,9 +85,9 @@ def carregar_fitxer(path):
                 try:
                     obj = Parser(path); obj.load(); data = obj; break
                 except Exception: pass
-            if data is None: raise RuntimeError("Could not read .res file")
+            if data is None: raise RuntimeError("No s'ha pogut llegir el .res")
         else:
-            raise ValueError(f"Unsupported extension: {ext}")
+            raise ValueError(f"Extensió no suportada: {ext}")
 
     curve_keys = []
     for k in data.keys():
@@ -89,7 +99,7 @@ def carregar_fitxer(path):
         valid = np.isfinite(x) & np.isfinite(y)
         if valid.sum() >= 2: curve_keys.append(k)
 
-    if not curve_keys: raise RuntimeError("No valid curves found.")
+    if not curve_keys: raise RuntimeError("No s'han trobat corbes vàlides.")
 
     x0, y0 = _xy_from_series_value(data[curve_keys[0]]["data"])
     df = pd.DataFrame({"mL": x0})
@@ -114,53 +124,25 @@ def carregar_fitxer(path):
         with np.errstate(divide="ignore", invalid="ignore"):
             df["260/280"] = df["UV 2_260"] / df["UV 1_280"]
 
-    return df, data
+    return df, data, os.path.basename(path)
 
 # ───────────────────────────────────────────────────────────────────────────────
-# MAIN UI
+# UI PRINCIPAL
 # ───────────────────────────────────────────────────────────────────────────────
 
-uploaded_files = st.file_uploader("📂 Drag & Drop files (.zip, .res, .result)", 
-                                  type=['zip', 'res', 'result'], 
-                                  accept_multiple_files=True)
+uploaded_file = st.file_uploader("📂 Arrossega el fitxer (.zip, .res, .result)", type=['zip', 'res', 'result'])
 
-if uploaded_files:
-    all_datasets = []
-    
-    # Load Loop
-    for up_file in uploaded_files:
-        original_name = up_file.name
-        
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(up_file.name)[1]) as tmp:
-            tmp.write(up_file.getvalue())
-            tmp_path = tmp.name
-        
-        try:
-            df, data = carregar_fitxer(tmp_path)
-            all_datasets.append({'name': original_name, 'df': df})
-        except Exception as e:
-            st.error(f"Error loading {original_name}: {e}")
-        finally:
-            if os.path.exists(tmp_path):
-                os.remove(tmp_path)
+if uploaded_file is not None:
+    with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp:
+        tmp.write(uploaded_file.getvalue())
+        tmp_path = tmp.name
 
-    if not all_datasets:
-        st.stop()
-
-    # ───────────────────────────────────────────────────────────────────────────
-    # MODE 1: SINGLE FILE ANALYSIS
-    # ───────────────────────────────────────────────────────────────────────────
-    if len(all_datasets) == 1:
-        dataset = all_datasets[0]
-        df = dataset['df']
-        original_name = dataset['name']
+    try:
+        df, data, file_name = carregar_fitxer(tmp_path)
         
-        # --- Sidebar Controls ---
-        st.sidebar.header("⚙️ Settings (Detail Mode)")
-        
-        chart_title = st.sidebar.text_input("📝 Chart Title", value=original_name)
-        
-        # Memory / State
+        # ───────────────────────────────────────────────────────────────────────────────
+        # LÒGICA DE PERSISTÈNCIA (MEMORY)
+        # ───────────────────────────────────────────────────────────────────────────────
         current_uv1_off = st.session_state.get('uv1_off', 0.0)
         current_uv2_off = st.session_state.get('uv2_off', 0.0)
         
@@ -168,14 +150,16 @@ if uploaded_files:
         possibles_uv = [k for k in cols if "UV" in k.upper()]
         possibles_y2 = [k for k in cols if k not in possibles_uv and k not in ["mL", "Fractions", "260/280"]]
         
-        # Auto-calc bounds
+        # Càlcul automàtic de rangs (Auto-Calc inicial)
         calc_min_y, calc_max_y = 0.0, 100.0
+        
         default_y1 = possibles_uv[0] if possibles_uv else None
         default_y2 = possibles_uv[2] if len(possibles_uv)>2 else (possibles_uv[1] if len(possibles_uv)>1 else None)
         
         temp_data = []
         if default_y1 in df.columns: temp_data.append(df[default_y1] + current_uv1_off)
         if default_y2 in df.columns: temp_data.append(df[default_y2] + current_uv2_off)
+        
         if temp_data:
             combined = pd.concat(temp_data)
             calc_min_y = float(combined.min()) - 4.0
@@ -183,14 +167,24 @@ if uploaded_files:
         
         ml_min_val, ml_max_val = float(df["mL"].min()), float(df["mL"].max())
 
-        if 'ymin_input' not in st.session_state: st.session_state.ymin_input = calc_min_y
-        if 'ymax_input' not in st.session_state: st.session_state.ymax_input = calc_max_y
-        if 'xmin_input' not in st.session_state: st.session_state.xmin_input = ml_min_val
-        if 'xmax_input' not in st.session_state: st.session_state.xmax_input = ml_max_val
+        # Inicialització de memòria (Només si no existeix, per respectar preferències de l'usuari)
+        if 'ymin_input' not in st.session_state:
+            st.session_state.ymin_input = calc_min_y
+        if 'ymax_input' not in st.session_state:
+            st.session_state.ymax_input = calc_max_y
+        if 'xmin_input' not in st.session_state:
+            st.session_state.xmin_input = ml_min_val
+        if 'xmax_input' not in st.session_state:
+            st.session_state.xmax_input = ml_max_val
 
-        with st.sidebar.expander("📊 Signals & Colors", expanded=True):
+        # ───────────────────────────────────────────────────────────────────────────────
+        # SIDEBAR CONTROLS
+        # ───────────────────────────────────────────────────────────────────────────────
+        st.sidebar.header("⚙️ Configuració del Gràfic")
+        
+        with st.sidebar.expander("📊 Senyals i Colors", expanded=True):
             c1, c2 = st.columns(2)
-            y1a_label = c1.selectbox("UV 1 (Main)", options=possibles_uv, index=0 if possibles_uv else 0, key='sel_uv1')
+            y1a_label = c1.selectbox("UV 1 (Principal)", options=possibles_uv, index=0 if possibles_uv else 0, key='sel_uv1')
             y1a_color = c2.color_picker("Color UV1", "#1f77b4", key='col_uv1')
             
             c3, c4 = st.columns(2)
@@ -198,117 +192,107 @@ if uploaded_files:
             y1b_color = c4.color_picker("Color UV2", "#ff0000", key='col_uv2')
             
             c5, c6 = st.columns(2)
-            y2_label = c5.selectbox("Secondary Y Axis", options=[""] + possibles_y2, key='sel_y2')
+            y2_label = c5.selectbox("Eix Y Secundari", options=[""] + possibles_y2, key='sel_y2')
             y2_color = c6.color_picker("Color Y2", "#2ca02c", key='col_y2')
 
-        with st.sidebar.expander("📏 Zoom & Dimensions", expanded=True):
-            st.markdown("**Figure Size**")
+        with st.sidebar.expander("📏 Mides i Rangs (Zoom)", expanded=True):
+            # Dimensions
+            st.markdown("**Dimensions**")
             cd1, cd2 = st.columns(2)
-            figwidth = cd1.number_input("Width", value=14, step=1, key='fig_w')
-            figheight = cd2.number_input("Height", value=6, step=1, key='fig_h')
+            figwidth = cd1.number_input("Amplada", value=14, step=1, key='fig_w')
+            figheight = cd2.number_input("Altura", value=6, step=1, key='fig_h')
+
             st.markdown("---")
-            st.markdown("**X Axis (mL)**")
-            col_x1, col_x2 = st.columns(2)
-            xmin = col_x1.number_input("Min X", step=1.0, key='xmin_input')
-            xmax = col_x2.number_input("Max X", step=1.0, key='xmax_input')
-            x_tick_step = st.number_input("X Tick Step (mL)", value=5.0, min_value=0.1, step=0.5, key='x_step')
-            st.markdown("---")
-            st.markdown("**Y Axis (mAU)**")
-            col_y1, col_y2 = st.columns(2)
-            ymin = col_y1.number_input("Min Y", step=5.0, format="%.1f", key='ymin_input')
-            ymax = col_y2.number_input("Max Y", step=5.0, format="%.1f", key='ymax_input')
             
+            # EIX X
+            st.markdown("**Eix X (mL)**")
+            col_x1, col_x2 = st.columns(2)
+            xmin = col_x1.number_input("Mínim X", step=1.0, key='xmin_input')
+            xmax = col_x2.number_input("Màxim X", step=1.0, key='xmax_input')
+            x_tick_step = st.number_input("Pas dels Ticks X (mL)", value=5.0, min_value=0.1, step=0.5, key='x_step')
+
+            st.markdown("---")
+            
+            # EIX Y
+            st.markdown("**Eix Y (Absorbància)**")
+            col_y1, col_y2 = st.columns(2)
+            # Aquí es carreguen els valors autocalculats si és el primer cop, o els que ha tocat l'usuari
+            ymin = col_y1.number_input("Mínim Y", step=5.0, format="%.1f", key='ymin_input')
+            ymax = col_y2.number_input("Màxim Y", step=5.0, format="%.1f", key='ymax_input')
+            
+            # Segon Eix
             y2_ymin, y2_ymax = 0.0, 100.0
             if y2_label:
-                st.markdown("**Secondary Y Axis**")
+                st.markdown("**Eix Y Secundari**")
                 c_y2_1, c_y2_2 = st.columns(2)
                 if 'y2_max_input' not in st.session_state:
                      y2_curr_max = float(df[y2_label].max())
                      st.session_state.y2_max_input = y2_curr_max + 10.0
-                y2_ymin = c_y2_1.number_input("Min Y2", value=0.0, key='y2_min_input')
-                y2_ymax = c_y2_2.number_input("Max Y2", key='y2_max_input')
+                
+                y2_ymin = c_y2_1.number_input("Mínim Y2", value=0.0, key='y2_min_input')
+                y2_ymax = c_y2_2.number_input("Màxim Y2", key='y2_max_input')
 
-        with st.sidebar.expander("🧪 Fractions", expanded=False):
-            show_fractions = st.checkbox("Show Fractions", value=True, key='show_fracs')
-            frac_step = st.number_input("Label every N fractions", value=1, min_value=1, step=1, key='frac_step')
-            # NEW DEFAULT: 1.0
-            tick_h = st.slider("Red mark height", 1.0, 300.0, 1.0, key='frac_h')
-            frac_lw = st.slider("Line width", 0.2, 5.0, 1.0, key='frac_lw')
-            # NEW DEFAULT: 0.0
-            label_offset = st.number_input("Text Position (Vertical)", min_value=0.0, value=0.0, step=0.5, key='frac_offset')
-            font_frac = st.slider("Fraction Font Size", 6, 20, 9, key='frac_font')
+        with st.sidebar.expander("🧪 Fraccions", expanded=False):
+            show_fractions = st.checkbox("Mostrar Fraccions", value=True, key='show_fracs')
+            frac_step = st.number_input("Etiquetar cada N fraccions", value=1, min_value=1, step=1, key='frac_step')
+            
+            default_tick_h = (ymax - ymin) * 0.1
+            tick_h = st.slider("Alçada marca vermella", 1.0, 300.0, float(default_tick_h) if default_tick_h > 0 else 10.0, key='frac_h')
+            frac_lw = st.slider("Gruix línia", 0.2, 5.0, 1.0, key='frac_lw')
+            
+            # Mínim 0.0
+            label_offset = st.number_input("Posició Text (Vertical)", min_value=0.0, value=2.0, step=0.5, key='frac_offset')
+            font_frac = st.slider("Mida Text Fracció", 6, 20, 9, key='frac_font')
 
-        with st.sidebar.expander("🎨 Fonts & Styles", expanded=False):
-            font_title = st.slider("Title Size", 10, 40, 16, key='f_title')
-            font_labels = st.slider("Axis Label Size", 8, 30, 12, key='f_labels')
-            font_ticks = st.slider("Tick Number Size", 8, 20, 10, key='f_ticks')
-            font_legend = st.slider("Legend Size", 8, 20, 10, key='f_legend')
+        with st.sidebar.expander("🎨 Estils de Text", expanded=False):
+            font_title = st.slider("Mida Títol", 10, 40, 16, key='f_title')
+            font_labels = st.slider("Mida Etiquetes Eixos", 8, 30, 12, key='f_labels')
+            font_ticks = st.slider("Mida Números Eixos", 8, 20, 10, key='f_ticks')
+            font_legend = st.slider("Mida Llegenda", 8, 20, 10, key='f_legend')
 
-        with st.sidebar.expander("🛠️ Extras (Offsets)", expanded=False):
+        # OFFSETS AL FINAL
+        with st.sidebar.expander("🛠️ Extres (Offsets)", expanded=False):
             uv1_offset = st.number_input("Offset UV1 (mAU)", step=0.5, key='uv1_off')
             uv2_offset = st.number_input("Offset UV2 (mAU)", step=0.5, key='uv2_off')
 
-        # ───────────────────────────────────────────────────────────────────────
-        # 🧮 PEAK ANALYSIS & INTEGRATION (NEW)
-        # ───────────────────────────────────────────────────────────────────────
-        with st.sidebar.expander("🧮 Peak Analysis (Conc. & Area)", expanded=False):
-            st.markdown("Select a range of fractions to calculate Area Under Curve (AUC) and Concentration.")
-            
-            # Get valid fractions
-            valid_fracs = df[df['Fractions'].notna()]['Fractions'].unique()
-            valid_fracs = [str(f) for f in valid_fracs] # ensure strings
-            
-            if len(valid_fracs) > 0:
-                col_f1, col_f2 = st.columns(2)
-                start_frac = col_f1.selectbox("Start Fraction", options=valid_fracs, index=0)
-                end_frac = col_f2.selectbox("End Fraction", options=valid_fracs, index=len(valid_fracs)-1)
-                
-                st.markdown("**Lambert-Beer Parameters**")
-                # Epsilon input
-                ext_coeff = st.number_input("Ext. Coeff (ε)", value=1.0, help="Unit: (mg/mL)^-1 * cm^-1 if you want result in mg/mL")
-                path_length = st.number_input("Path Length (cm)", value=0.2, help="Usually 0.2 cm (2 mm) for standard Akta UV cells")
-                
-                run_calc = st.button("Calculate Peak")
-            else:
-                st.warning("No fractions found in file.")
-                run_calc = False
-
-        # ───────────────────────────────────────────────────────────────────────
-        # PLOT
-        # ───────────────────────────────────────────────────────────────────────
+        # ───────────────────────────────────────────────────────────────────────────────
+        # GENERACIÓ DEL GRÀFIC
+        # ───────────────────────────────────────────────────────────────────────────────
         fig, ax1 = plt.subplots(figsize=(figwidth, figheight))
+
+        # Plot UV1
         if y1a_label and y1a_label in df.columns:
             ax1.plot(df["mL"], df[y1a_label] + uv1_offset, label=y1a_label, color=y1a_color)
-            
+        
+        # Plot UV2
         if y1b_label and y1b_label in df.columns and y1b_label != y1a_label:
             ax1.plot(df["mL"], df[y1b_label] + uv2_offset, label=y1b_label, color=y1b_color)
-        
+
         ax1.set_xlim(xmin, xmax)
         ax1.set_ylim(ymin, ymax)
         ax1.set_xlabel("Elution volume (mL)", fontsize=font_labels)
         ax1.set_ylabel("Absorbance (mAU)", fontsize=font_labels)
         ax1.tick_params(axis='both', labelsize=font_ticks)
-        ax1.set_title(chart_title, fontsize=font_title)
-        
-        if x_tick_step > 0: ax1.xaxis.set_major_locator(ticker.MultipleLocator(x_tick_step))
+        ax1.set_title(f"Chromatogram – {file_name}", fontsize=font_title)
 
-        # FRACTIONS LOGIC
-        frac_indices = df[df['Fractions'].notna()].index
-        
-        if show_fractions and len(frac_indices) > 0:
-            # We filter visually based on X range
-            fractions_viz = df.loc[frac_indices]
-            fractions_viz = fractions_viz[fractions_viz['mL'].between(xmin, xmax)].reset_index()
+        if x_tick_step > 0:
+            ax1.xaxis.set_major_locator(ticker.MultipleLocator(x_tick_step))
+
+        # Plot Fraccions
+        if show_fractions and "Fractions" in df.columns:
+            fractions = df[(df['Fractions'].notna()) & (df['mL'].between(xmin, xmax))].reset_index()
             
-            for i in range(len(fractions_viz)):
-                x = fractions_viz.loc[i, 'mL']
-                label = fractions_viz.loc[i, 'Fractions']
+            for i in range(len(fractions)):
+                x = fractions.loc[i, 'mL']
+                label = fractions.loc[i, 'Fractions']
                 ax1.vlines(x, ymin, ymin + tick_h, color='red', linewidth=frac_lw, zorder=5)
+                
                 if i % frac_step == 0:
                     txt = 'W' if str(label).lower() == 'waste' else str(label)
-                    ax1.text(x, ymin + tick_h + label_offset, txt, ha='center', va='bottom', fontsize=font_frac, color='black', clip_on=False, zorder=6)
+                    ax1.text(x, ymin + tick_h + label_offset, txt, 
+                             ha='center', va='bottom', fontsize=font_frac, color='black', clip_on=False, zorder=6)
 
-        # 2nd AXIS
+        # Segon Eix Y
         ax2 = None
         if y2_label and y2_label in df.columns:
             ax2 = ax1.twinx()
@@ -320,158 +304,13 @@ if uploaded_files:
         handles1, labels1 = ax1.get_legend_handles_labels()
         handles2, labels2 = ax2.get_legend_handles_labels() if ax2 else ([], [])
         ax1.legend(handles1 + handles2, labels1 + labels2, loc='upper right', fontsize=font_legend)
-        
-        # PEAK HIGHLIGHTING (If Calc is pressed)
-        analysis_results = None
-        if run_calc and y1a_label and len(frac_indices) > 0:
-            try:
-                # Find start Volume
-                # Logic: find the mL where the Start Fraction appears
-                mask_start = df['Fractions'].astype(str) == str(start_frac)
-                mask_end = df['Fractions'].astype(str) == str(end_frac)
-                
-                if mask_start.any() and mask_end.any():
-                    idx_start = df.index[mask_start][0]
-                    # For end fraction, we want the interval UNTIL the NEXT fraction starts
-                    idx_end_fraction_start = df.index[mask_end][0]
-                    
-                    # Find the NEXT fraction index to close the range
-                    # We look for the next fraction entry in df after idx_end_fraction_start
-                    next_fracs = [i for i in frac_indices if i > idx_end_fraction_start]
-                    
-                    if next_fracs:
-                        idx_range_end = next_fracs[0]
-                    else:
-                        idx_range_end = df.index[-1] # End of file
-                        
-                    # Slice Data
-                    # We ensure we are within the indices
-                    peak_df = df.loc[idx_start:idx_range_end].copy()
-                    
-                    # Calculations
-                    # Abs is in mAU, convert to AU
-                    peak_df['AU'] = (peak_df[y1a_label] + uv1_offset) / 1000.0
-                    peak_df['AU'] = peak_df['AU'].clip(lower=0) # No negative conc
-                    
-                    # Integration (Area) mAU * mL
-                    auc = np.trapz(peak_df[y1a_label] + uv1_offset, peak_df['mL'])
-                    
-                    # Concentration (Lambert Beer) A = e * c * l  => c = A / (e*l)
-                    # We calculate Average Absorbance over the volume
-                    avg_abs = peak_df['AU'].mean()
-                    
-                    concentration = avg_abs / (ext_coeff * path_length) if (ext_coeff*path_length) > 0 else 0
-                    
-                    # Total Volume
-                    vol_start = peak_df['mL'].min()
-                    vol_end = peak_df['mL'].max()
-                    total_vol = vol_end - vol_start
-                    
-                    # Total Mass (mg) = Conc (mg/mL) * Vol (mL)
-                    total_mass = concentration * total_vol
-                    
-                    # Highlight area on plot
-                    ax1.fill_between(peak_df['mL'], ymin, peak_df[y1a_label] + uv1_offset, color=y1a_color, alpha=0.3)
-                    
-                    analysis_results = {
-                        "AUC (mAU*mL)": f"{auc:.2f}",
-                        "Avg. Abs (AU)": f"{avg_abs:.4f}",
-                        "Volume (mL)": f"{total_vol:.2f}",
-                        "Concentration": f"{concentration:.3f}",
-                        "Total Amount": f"{total_mass:.3f}"
-                    }
-                    
-                else:
-                    st.error("Selected fractions not found in data.")
-            except Exception as e:
-                st.error(f"Calculation Error: {e}")
 
         st.pyplot(fig)
         
-        # DISPLAY ANALYSIS RESULTS BELOW PLOT
-        if analysis_results:
-            st.markdown("### 🧬 Analysis Results")
-            st.info(f"Analyzing Range: **Frac {start_frac}** to **Frac {end_frac}** (Signal: {y1a_label})")
-            
-            c_res1, c_res2, c_res3, c_res4, c_res5 = st.columns(5)
-            c_res1.metric("Concentration", f"{analysis_results['Concentration']}")
-            c_res2.metric("Total Amount", f"{analysis_results['Total Amount']}")
-            c_res3.metric("Volume", f"{analysis_results['Volume (mL)']}")
-            c_res4.metric("Avg. Abs (AU)", f"{analysis_results['Avg. Abs (AU)']}")
-            c_res5.metric("AUC", f"{analysis_results['AUC (mAU*mL)']}")
-            
-            st.caption("*Note: Concentration unit depends on your Extinction Coefficient unit (e.g., mg/mL).*")
+        with st.expander("📋 Veure Dades en Taula"):
+            st.dataframe(df)
 
-        with st.expander("📋 View Data Table"): st.dataframe(df)
-
-    # ───────────────────────────────────────────────────────────────────────────
-    # MODE 2: MULTI-FILE (COMPARISON)
-    # ───────────────────────────────────────────────────────────────────────────
-    else:
-        st.success(f"Comparison Mode: {len(all_datasets)} files loaded.")
-        
-        ref_df = all_datasets[0]['df']
-        ref_cols = list(ref_df.columns)
-        possibles_uv_comp = [k for k in ref_cols if "UV" in k.upper()]
-        
-        st.sidebar.header("⚙️ Settings (Comparison)")
-        
-        signal_to_compare = st.sidebar.selectbox("Signal to Compare", options=possibles_uv_comp, index=0)
-        
-        default_comp_title = f"Comparison – {signal_to_compare}"
-        chart_title_comp = st.sidebar.text_input("📝 Chart Title", value=default_comp_title)
-
-        st.sidebar.markdown("### 🏷️ Edit Legend Names")
-        renamed_datasets = []
-        for i, d in enumerate(all_datasets):
-            new_name = st.sidebar.text_input(f"File {i+1}", value=d['name'], key=f"rename_{i}")
-            renamed_datasets.append({'name': new_name, 'df': d['df']})
-        
-        st.sidebar.markdown("---")
-        
-        with st.sidebar.expander("📏 Zoom & Dimensions", expanded=True):
-            st.markdown("**Figure Size**")
-            cd1, cd2 = st.columns(2)
-            figwidth_c = cd1.number_input("Width", value=14, step=1, key='fig_w_comp')
-            figheight_c = cd2.number_input("Height", value=6, step=1, key='fig_h_comp')
-            
-            all_max_x = max([d['df']['mL'].max() for d in renamed_datasets])
-            all_min_x = min([d['df']['mL'].min() for d in renamed_datasets])
-            
-            max_y_vals = []
-            for d in renamed_datasets:
-                if signal_to_compare in d['df'].columns:
-                    max_y_vals.append(d['df'][signal_to_compare].max())
-            all_max_y = max(max_y_vals) if max_y_vals else 100
-            
-            col_xc1, col_xc2 = st.columns(2)
-            xmin_c = col_xc1.number_input("Min X", value=float(all_min_x), step=1.0, key='xmin_c')
-            xmax_c = col_xc2.number_input("Max X", value=float(all_max_x), step=1.0, key='xmax_c')
-            
-            col_yc1, col_yc2 = st.columns(2)
-            ymin_c = col_yc1.number_input("Min Y", value=-10.0, step=5.0, key='ymin_c')
-            ymax_c = col_yc2.number_input("Max Y", value=float(all_max_y)+10, step=5.0, key='ymax_c')
-
-        # PLOT COMPARISON
-        fig, ax = plt.subplots(figsize=(figwidth_c, figheight_c))
-        
-        for dataset in renamed_datasets:
-            dname = dataset['name']
-            ddf = dataset['df']
-            
-            if signal_to_compare in ddf.columns:
-                ax.plot(ddf["mL"], ddf[signal_to_compare], label=dname, alpha=0.8)
-            else:
-                st.warning(f"File {dname} does not have signal {signal_to_compare}")
-
-        ax.set_xlim(xmin_c, xmax_c)
-        ax.set_ylim(ymin_c, ymax_c)
-        ax.set_xlabel("Elution volume (mL)", fontsize=12)
-        ax.set_ylabel(f"{signal_to_compare} (mAU)", fontsize=12)
-        
-        ax.set_title(chart_title_comp, fontsize=16)
-        
-        ax.legend(loc='upper right')
-        ax.grid(True, linestyle=':', alpha=0.6)
-        
-        st.pyplot(fig)
+    except Exception as e:
+        st.error(f"❌ Error processant el fitxer: {e}")
+    finally:
+        os.remove(tmp_path)
