@@ -369,7 +369,7 @@ if uploaded_files:
                                     
                                     # 2. NOU: Fem servir st.table en lloc de st.dataframe
                                     # Això genera una taula estàtica que es pot seleccionar i copiar fàcilment
-                                    st.table(df_fracs)
+                                    st.table(df_fracs.style.hide())
                                     
                                     # 3. Botó de descàrrega (el mantenim per si de cas)
                                     csv = df_fracs.to_csv(index=False, sep='\t').encode('utf-8')
@@ -495,6 +495,7 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
 
 
 
