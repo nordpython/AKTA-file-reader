@@ -20,7 +20,7 @@ import proteovis as pv
 # ───────────────────────────────────────────────────────────────────────────────
 # PAGE CONFIGURATION
 # ───────────────────────────────────────────────────────────────────────────────
-st.set_page_config(page_title="Akta Viewer Pro", layout="wide", page_icon="🧬")
+st.set_page_config(page_title="Akta Viewer", layout="wide", page_icon="🧬")
 
 st.markdown("""
 <style>
@@ -34,12 +34,9 @@ st.markdown("""
         margin-bottom: 10px;
         text-align: center;
     }
-    /* Custom style for legend inputs */
-    .stTextInput > label { font-size: 0.8em; }
 </style>
 """, unsafe_allow_html=True)
 
-# TITOL NET (Sense "Full Version")
 st.title("🧬 Akta Chromatogram Viewer")
 
 # ───────────────────────────────────────────────────────────────────────────────
@@ -131,11 +128,10 @@ def carregar_fitxer(path):
 uploaded_files = st.file_uploader("📂 Drag and drop files here (.zip, .res, .result)", type=['zip', 'res', 'result'], accept_multiple_files=True)
 
 # ───────────────────────────────────────────────────────────────────────────────
-# DATA LOADING & MODE SELECTION
+# MAIN LOGIC
 # ───────────────────────────────────────────────────────────────────────────────
 if uploaded_files:
     
-    # Mode Selector
     mode = st.sidebar.radio("Analysis Mode", ["📊 Detailed Analysis (Single)", "📈 Multi-File Comparison (Overlay)"])
     
     # ───────────────────────────────────────────────────────────────────────────
@@ -143,12 +139,12 @@ if uploaded_files:
     # ───────────────────────────────────────────────────────────────────────────
     if mode == "📊 Detailed Analysis (Single)":
         
-        # File Selection
+        # File Selector
         file_names = [f.name for f in uploaded_files]
         selected_name = st.sidebar.selectbox("Select File to Analyze", file_names)
         target_file = next(f for f in uploaded_files if f.name == selected_name)
 
-        # Load
+        # Load File
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(target_file.name)[1]) as tmp:
             tmp.write(target_file.getvalue())
             tmp_path = tmp.name
@@ -156,25 +152,47 @@ if uploaded_files:
         try:
             df, data, real_filename = carregar_fitxer(tmp_path)
             
-            # --- Memory & Defaults ---
+            # --- AUTO-SCALE & PERSISTENCE LOGIC ---
+            # 1. Init Memory Keys if missing
+            if 'uv1_off' not in st.session_state: st.session_state.uv1_off = 0.0
+            if 'uv2_off' not in st.session_state: st.session_state.uv2_off = 0.0
+            if 'last_loaded_file' not in st.session_state: st.session_state.last_loaded_file = ""
+
             cols = list(df.columns)
             possibles_uv = [k for k in cols if "UV" in k.upper()]
             possibles_y2 = [k for k in cols if k not in possibles_uv and k not in ["mL", "Fractions", "260/280"]]
             
-            # Init Memory
-            if 'uv1_off' not in st.session_state: st.session_state.uv1_off = 0.0
-            if 'uv2_off' not in st.session_state: st.session_state.uv2_off = 0.0
+            # 2. Check if NEW file is loaded
+            is_new_file = (st.session_state.last_loaded_file != real_filename)
             
-            # Auto-Calc for Memory
-            if 'ymin_input' not in st.session_state:
-                # Simple logic for default
-                val_max = df[possibles_uv[0]].max() if possibles_uv else 100
-                st.session_state.ymin_input = 0.0
-                st.session_state.ymax_input = float(val_max) + 50.0
-                st.session_state.xmin_input = float(df["mL"].min())
-                st.session_state.xmax_input = float(df["mL"].max())
+            # 3. Calculate Auto-Ranges (Calculated every time, applied only if new file)
+            calc_min_x = float(df["mL"].min())
+            calc_max_x = float(df["mL"].max())
+            
+            # Estimate Y range based on main UVs
+            temp_y_vals = []
+            default_u1 = possibles_uv[0] if possibles_uv else None
+            default_u2 = possibles_uv[2] if len(possibles_uv)>2 else (possibles_uv[1] if len(possibles_uv)>1 else None)
+            
+            if default_u1 in df.columns: temp_y_vals.append(df[default_u1])
+            if default_u2 in df.columns: temp_y_vals.append(df[default_u2])
+            
+            calc_min_y, calc_max_y = 0.0, 100.0
+            if temp_y_vals:
+                combined = pd.concat(temp_y_vals)
+                calc_min_y = float(combined.min()) - 4.0
+                calc_max_y = float(combined.max()) + 4.0
 
-            # --- SIDEBAR (SINGLE) ---
+            # 4. Apply to Session State IF new file OR keys missing
+            if is_new_file or 'ymin_input' not in st.session_state:
+                st.session_state.ymin_input = calc_min_y
+                st.session_state.ymax_input = calc_max_y
+                st.session_state.xmin_input = calc_min_x
+                st.session_state.xmax_input = calc_max_x
+                # Update tracker
+                st.session_state.last_loaded_file = real_filename
+
+            # --- SIDEBAR CONTROLS ---
             st.sidebar.markdown("---")
             with st.sidebar.expander("📊 Signals & Colors", expanded=True):
                 c1, c2 = st.columns(2)
@@ -210,13 +228,15 @@ if uploaded_files:
             with st.sidebar.expander("🧪 Fractions", expanded=False):
                 show_fractions = st.checkbox("Show Fractions", value=True, key='s_frac')
                 frac_step = st.number_input("Label every N", value=1, min_value=1, key='s_fstep')
-                tick_h = st.slider("Line Height", 1.0, 300.0, 1.0, key='s_fh_val') # DEFAULT 1.0
-                label_offset = st.number_input("Text Pos", value=0.0, step=0.5, key='s_foff') # DEFAULT 0.0
+                tick_h = st.slider("Line Height", 1.0, 300.0, 1.0, key='s_fh_val')
+                label_offset = st.number_input("Text Pos", value=0.0, step=0.5, key='s_foff')
                 font_frac = st.slider("Font Size", 6, 20, 9, key='s_ffont')
 
             with st.sidebar.expander("🎨 Styles & Offsets", expanded=False):
                 plot_title = st.text_input("Title", value=f"Chromatogram – {real_filename}")
                 font_title = st.slider("Title Size", 10, 40, 16, key='s_ftitle')
+                font_labels = st.slider("Axis Labels", 8, 30, 12, key='f_labels')
+                font_ticks = st.slider("Axis Numbers", 8, 20, 10, key='f_ticks')
                 font_legend = st.slider("Legend Size", 8, 20, 10, key='s_fleg')
                 st.markdown("---")
                 uv1_offset = st.number_input("Offset UV1", step=0.5, key='uv1_off')
@@ -229,8 +249,9 @@ if uploaded_files:
 
             ax1.set_xlim(xmin, xmax)
             ax1.set_ylim(ymin, ymax)
-            ax1.set_xlabel("Elution volume (mL)")
-            ax1.set_ylabel("Absorbance (mAU)")
+            ax1.set_xlabel("Elution volume (mL)", fontsize=font_labels)
+            ax1.set_ylabel("Absorbance (mAU)", fontsize=font_labels)
+            ax1.tick_params(axis='both', labelsize=font_ticks)
             ax1.set_title(plot_title, fontsize=font_title)
             if x_tick_step > 0: ax1.xaxis.set_major_locator(ticker.MultipleLocator(x_tick_step))
 
@@ -257,7 +278,7 @@ if uploaded_files:
             st.pyplot(fig)
 
             # --- CALCULATIONS ---
-            with st.expander("🧮 Calculations", expanded=True):
+            with st.expander("🧮 Calculations & Peak Integration", expanded=True):
                 c_c1, c_c2 = st.columns([1, 2])
                 with c_c1:
                     st.markdown("#### Parameters")
@@ -289,7 +310,6 @@ if uploaded_files:
                             else:
                                 y_proc = y_vals
                             
-                            # Calcs
                             avg_au = np.mean(y_proc) / 1000.0
                             area_au = np.trapz(y_proc, sub["mL"].values) / 1000.0
                             
@@ -299,7 +319,6 @@ if uploaded_files:
                                 else: c_mg = (avg_au / (e_molar * path_l)) * mw
                             
                             c_um = (c_mg / mw) * 1e6 if mw > 0 else 0.0
-                            
                             m_mg = 0.0
                             if path_l > 0:
                                 if c_type == "Abs 0.1%": m_mg = area_au / (e_mass * path_l)
@@ -348,14 +367,13 @@ if uploaded_files:
         finally: os.remove(tmp_path)
 
     # ───────────────────────────────────────────────────────────────────────────
-    # MODE 2: MULTI-FILE OVERLAY (MILLORAT)
+    # MODE 2: MULTI-FILE OVERLAY
     # ───────────────────────────────────────────────────────────────────────────
     elif mode == "📈 Multi-File Comparison (Overlay)":
         
         st.sidebar.markdown("---")
         st.sidebar.subheader("Overlay Settings")
         
-        # 1. Carreguem tots els fitxers
         loaded_dfs = []
         possible_signals = set()
         
@@ -378,15 +396,19 @@ if uploaded_files:
         else:
             sorted_sig = sorted(list(possible_signals))
             
-            # --- OVERLAY CONTROLS ---
+            # --- AUTO-SELECT 280nm Logic ---
+            # Busquem l'índex de la senyal que contingui "280"
+            default_idx = 0
+            for i, sig in enumerate(sorted_sig):
+                if "280" in sig:
+                    default_idx = i
+                    break
+            
             with st.sidebar.expander("📊 Signals Selection", expanded=True):
-                # Eix Y1 (Esquerra)
-                y1_sig = st.selectbox("Left Axis (Y1)", sorted_sig, index=0 if sorted_sig else 0)
-                # Eix Y2 (Dreta) - Opcional
+                y1_sig = st.selectbox("Left Axis (Y1)", sorted_sig, index=default_idx)
                 y2_sig = st.selectbox("Right Axis (Y2 - Optional)", ["None"] + sorted_sig, index=0)
             
             with st.sidebar.expander("📏 Ranges & Options", expanded=True):
-                # Rangs X
                 all_min_x = min([d["df"]["mL"].min() for d in loaded_dfs])
                 all_max_x = max([d["df"]["mL"].max() for d in loaded_dfs])
                 
@@ -394,7 +416,6 @@ if uploaded_files:
                 mx_min = c_rx1.number_input("Min X", value=float(all_min_x), step=1.0)
                 mx_max = c_rx2.number_input("Max X", value=float(all_max_x), step=1.0)
                 
-                # Rangs Y Manuals
                 auto_y = st.checkbox("Auto Y-Scale", value=True)
                 if not auto_y:
                     c_ry1, c_ry2 = st.columns(2)
@@ -406,25 +427,19 @@ if uploaded_files:
                 alpha = st.slider("Transparency", 0.1, 1.0, 0.8)
 
             with st.sidebar.expander("📝 Edit Legend Names", expanded=False):
-                # Permet canviar el nom de cada fitxer per a la llegenda
                 custom_names = {}
                 for item in loaded_dfs:
                     orig = item["name"]
                     custom_names[orig] = st.text_input(f"Name for {orig}", value=orig)
 
-            # --- PLOT OVERLAY ---
             st.markdown("### Comparison Chart")
             
-            # Dimensions
             f_w = st.sidebar.number_input("Width", 14, key="mw")
             f_h = st.sidebar.number_input("Height", 6, key="mh")
             
             fig, ax1 = plt.subplots(figsize=(f_w, f_h))
-            
-            # Paleta de colors
             colors = plt.cm.tab10(np.linspace(0, 1, len(loaded_dfs)))
             
-            # Loop per fitxers (Eix Esquerre)
             for i, item in enumerate(loaded_dfs):
                 df = item["df"]
                 label = custom_names[item["name"]]
@@ -432,7 +447,6 @@ if uploaded_files:
                 if y1_sig in df.columns:
                     y_data = df[y1_sig].values
                     if normalize: y_data = y_data - y_data[0]
-                    
                     ax1.plot(df["mL"], y_data, label=label, color=colors[i], linewidth=line_width, alpha=alpha)
             
             ax1.set_xlim(mx_min, mx_max)
@@ -442,23 +456,17 @@ if uploaded_files:
             ax1.set_ylabel(f"{y1_sig} (mAU)")
             ax1.tick_params(axis='y')
             
-            # Eix Dret (Si està seleccionat)
             ax2 = None
             if y2_sig != "None":
                 ax2 = ax1.twinx()
-                # Loop per fitxers (Eix Dret)
                 for i, item in enumerate(loaded_dfs):
                     df = item["df"]
-                    # No posem label al segon eix per no duplicar llegenda, o usem linia discontinua
                     if y2_sig in df.columns:
                         y2_data = df[y2_sig].values
                         if normalize: y2_data = y2_data - y2_data[0]
-                        
                         ax2.plot(df["mL"], y2_data, color=colors[i], linestyle="--", linewidth=1, alpha=0.6)
-                
                 ax2.set_ylabel(f"{y2_sig} (Dashed)")
             
-            # Llegenda (només del primer eix per no fer un embolic, ja que els colors coincideixen)
             ax1.legend(loc='upper right', fontsize=10)
             ax1.grid(True, alpha=0.3)
             ax1.set_title(f"Overlay: {y1_sig} " + (f"vs {y2_sig}" if y2_sig != "None" else ""))
