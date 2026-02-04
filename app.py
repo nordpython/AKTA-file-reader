@@ -362,8 +362,27 @@ if uploaded_files:
                                                 "mg/mL": f"{f_cmg:.{decs}f}",
                                                 "µM": f"{f_cum:.{decs}f}"
                                             })
-                                if f_list: st.dataframe(pd.DataFrame(f_list), use_container_width=True)
-                                else: st.info("No fractions.")
+                                
+                                if f_list: 
+                                    # 1. Creem el DataFrame
+                                    df_fracs = pd.DataFrame(f_list)
+                                    df_visual = df_fracs.set_index("Fraction")
+                                    
+                                    # 2. NOU: Fem servir st.table en lloc de st.dataframe
+                                    # Això genera una taula estàtica que es pot seleccionar i copiar fàcilment
+                                    st.table(df_visual)
+                                    
+                                    # 3. Botó de descàrrega (el mantenim per si de cas)
+                                    csv = df_fracs.to_csv(index=False, sep='\t').encode('utf-8')
+                                    st.download_button(
+                                        label="📥 Download Table (Compatible Excel)",
+                                        data=csv,
+                                        file_name=f"fractions_{real_filename}.csv",
+                                        mime="text/csv"
+                                    )
+                                else: 
+                                    st.info("No fractions inside integration range.")
+                                
         except Exception as e: st.error(f"Error: {e}")
         finally: os.remove(tmp_path)
 
@@ -477,6 +496,9 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
+
+
 
 
 
