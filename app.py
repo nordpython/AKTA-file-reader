@@ -366,10 +366,11 @@ if uploaded_files:
                                 if f_list: 
                                     # 1. Creem el DataFrame
                                     df_fracs = pd.DataFrame(f_list)
+                                    df_visual = df_fracs.set_index("Fraction")
                                     
                                     # 2. NOU: Fem servir st.table en lloc de st.dataframe
                                     # Això genera una taula estàtica que es pot seleccionar i copiar fàcilment
-                                    st.table(df_fracs.style.hide())
+                                    st.table(df_visual)
                                     
                                     # 3. Botó de descàrrega (el mantenim per si de cas)
                                     csv = df_fracs.to_csv(index=False, sep='\t').encode('utf-8')
@@ -495,6 +496,7 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
 
 
 
