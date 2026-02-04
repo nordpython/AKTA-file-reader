@@ -287,7 +287,7 @@ if uploaded_files:
                     int_end = st.number_input("End (mL)", value=xmax, step=0.5)
                     target_sig = st.selectbox("Signal", [y1a_label, y1b_label])
                     base_mode = st.selectbox("Baseline", ["None", "Linear (Start-End)"])
-                    st.markdown("#### Protein")
+                    st.markdown("#### Beer–Lambert law parameters")
                     path_l = st.number_input("Path (cm)", value=0.2, format="%.2f")
                     c_type = st.radio("Type", ["Abs 0.1%", "Molar"],index=1, help="Sum Molar for complexes.")
                     if c_type == "Abs 0.1%":
@@ -477,6 +477,7 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
 
 
 
