@@ -283,18 +283,18 @@ if uploaded_files:
                 c_c1, c_c2 = st.columns([1, 2])
                 with c_c1:
                     st.markdown("#### Parameters")
-                    int_start = st.number_input("Start", value=xmin, step=0.5)
-                    int_end = st.number_input("End", value=xmax, step=0.5)
+                    int_start = st.number_input("Start (mL)", value=xmin, step=0.5)
+                    int_end = st.number_input("End (mL)", value=xmax, step=0.5)
                     target_sig = st.selectbox("Signal", [y1a_label, y1b_label])
                     base_mode = st.selectbox("Baseline", ["None", "Linear (Start-End)"])
-                    st.markdown("#### Protein")
-                    path_l = st.number_input("Path (cm)", value=0.2, format="%.2f")
-                    c_type = st.radio("Type", ["Abs 0.1%", "Molar"],index=1, help="Sum Molar for complexes.")
+                    st.markdown("#### Beer–Lambert law parameters")
+                    path_l = st.number_input("optical path length (cm)", value=0.2, format="%.2f")
+                    c_type = st.radio("Type of Ext. coefficient ", ["Abs 0.1%", "Molar"],index=1, help="Sum Molar for complexes.")
                     if c_type == "Abs 0.1%":
                         e_mass = st.number_input("Abs 0.1%", value=1.0, format="%.3f")
                         e_molar = None
                     else:
-                        e_molar = st.number_input("Molar", value=50000.0, format="%.1f")
+                        e_molar = st.number_input("Ext. coefficient (M-1 cm-1) ", value=50000.0, format="%.1f")
                         e_mass = None
                     mw = st.number_input("MW (Da)", value=10000.0, format="%.1f")
                     decs = st.number_input("Decimals", value=4, min_value=1, max_value=8)
@@ -477,4 +477,8 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
+
+
+
 
