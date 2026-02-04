@@ -150,7 +150,8 @@ if uploaded_files:
             tmp_path = tmp.name
 
         try:
-            df, data, real_filename = carregar_fitxer(tmp_path)
+            df, data, _ = carregar_fitxer(tmp_path) # Ignorem el nom temporal
+            real_filename = target_file.name        # Agafem el nom REAL del fitxer pujat
             
             # --- AUTO-SCALE & PERSISTENCE LOGIC ---
             # 1. Init Memory Keys if missing
@@ -476,3 +477,4 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
