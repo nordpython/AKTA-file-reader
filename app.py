@@ -10,7 +10,7 @@ import contextlib
 import io
 
 # ───────────────────────────────────────────────────────────────────────────────
-# 🚑 PARCHE NUMPY 2.0 (Fix per error 'trapz')
+# 🚑 PARCHE NUMPY 2.0
 # ───────────────────────────────────────────────────────────────────────────────
 if not hasattr(np, 'trapz'):
     np.trapz = np.trapezoid
@@ -32,6 +32,10 @@ st.markdown("""
         padding: 15px;
         border-radius: 5px;
         margin-bottom: 10px;
+        text-align: center;
+    }
+    .fraction-table {
+        font-size: 0.9em;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -240,20 +244,17 @@ if uploaded_file is not None:
         if x_tick_step > 0:
             ax1.xaxis.set_major_locator(ticker.MultipleLocator(x_tick_step))
 
-        # Fraccions
         if show_fractions and "Fractions" in df.columns:
             fractions = df[(df['Fractions'].notna()) & (df['mL'].between(xmin, xmax))].reset_index()
             for i in range(len(fractions)):
                 x = fractions.loc[i, 'mL']
                 label = fractions.loc[i, 'Fractions']
-                
                 ax1.vlines(x, ymin, ymin + tick_h, color='red', linewidth=1, zorder=5)
                 if i % frac_step == 0:
                     txt = 'W' if str(label).lower() == 'waste' else str(label)
                     ax1.text(x, ymin + tick_h + label_offset, txt, ha='center', va='bottom', 
                              fontsize=font_frac, color='black', clip_on=False, zorder=6)
 
-        # Eix 2
         ax2 = None
         if y2_label and y2_label in df.columns:
             ax2 = ax1.twinx()
@@ -269,36 +270,36 @@ if uploaded_file is not None:
         st.pyplot(fig)
 
         # ───────────────────────────────────────────────────────────────────────────────
-        # MÒDUL D'INTEGRACIÓ DE PICS (AMB CORRECCIÓ D'UNITATS)
+        # MÒDUL D'INTEGRACIÓ DE PICS
         # ───────────────────────────────────────────────────────────────────────────────
         with st.expander("🧮 Càlculs i Integració de Pics", expanded=True):
             col_calc1, col_calc2 = st.columns([1, 2])
             
             with col_calc1:
-                st.markdown("#### 1. Paràmetres d'Integració")
+                st.markdown("#### 1. Paràmetres")
                 int_start = st.number_input("Inici (mL)", value=xmin, step=0.5)
                 int_end = st.number_input("Final (mL)", value=xmax, step=0.5)
                 
                 target_signal = st.selectbox("Senyal a Integrar", [y1a_label, y1b_label])
                 baseline_mode = st.selectbox("Correcció Base", ["Cap", "Lineal (Inici-Fi)"])
                 
-                st.markdown("#### 2. Dades de la Proteïna")
-                path_length = st.number_input("Camí Òptic (cm)", value=0.2, format="%.2f", help="A l'AKTA sol ser 0.2 cm (2mm)")
+                st.markdown("#### 2. Dades Proteïna")
+                path_length = st.number_input("Camí Òptic (cm)", value=0.2, format="%.2f", help="Normalment 0.2 o 0.5 a l'Akta")
                 
-                # SELECCIÓ DEL TIPUS DE COEFICIENT
-                coeff_type = st.radio("Tipus de Coeficient d'Extinció", 
-                                      ["Abs 0.1% (1 g/L)", "Molar (M⁻¹ cm⁻¹)"],
-                                      help="ProtParam dona els dos valors. El petit (~1.0) és Abs 0.1%. El gran (~50000) és Molar.")
+                coeff_type = st.radio("Tipus Coeficient", ["Abs 0.1% (1 g/L)", "Molar (M⁻¹ cm⁻¹)"])
                 
+                # IMPORTANT: Demanem MW sempre si volen calcular µM
                 if coeff_type == "Abs 0.1% (1 g/L)":
-                    ext_coeff_mass = st.number_input("Valor Abs 0.1% (ex: 1.918)", value=1.0, format="%.3f")
-                    mol_weight = None # No cal
+                    ext_coeff_mass = st.number_input("Valor Abs 0.1%", value=1.0, format="%.3f")
+                    ext_coeff_molar = None
                 else:
-                    ext_coeff_molar = st.number_input("Valor Molar (ex: 96970)", value=50000.0, format="%.1f")
-                    mol_weight = st.number_input("Pes Molecular (Da o g/mol)", value=10000.0, format="%.1f")
+                    ext_coeff_molar = st.number_input("Valor Molar (ε)", value=50000.0, format="%.1f")
+                    ext_coeff_mass = None
                 
+                mol_weight = st.number_input("Pes Molecular (Da)", value=10000.0, format="%.1f", help="Necessari per calcular µM")
+
             with col_calc2:
-                st.markdown("#### Resultats")
+                st.markdown("#### Resultats del Pic")
                 if target_signal and target_signal in df.columns:
                     mask = (df["mL"] >= int_start) & (df["mL"] <= int_end)
                     sub_df = df[mask].copy()
@@ -308,7 +309,7 @@ if uploaded_file is not None:
                         offset_val = uv1_offset if target_signal == y1a_label else uv2_offset
                         y_vals = sub_df[target_signal].values + offset_val
                         
-                        # Baseline
+                        # Baseline Calculation
                         if baseline_mode == "Lineal (Inici-Fi)":
                             slope = (y_vals[-1] - y_vals[0]) / (x_vals[-1] - x_vals[0])
                             baseline = y_vals[0] + slope * (x_vals - x_vals[0])
@@ -316,45 +317,122 @@ if uploaded_file is not None:
                         else:
                             y_processed = y_vals
                             baseline = np.zeros_like(y_vals)
+                        
+                        # Dades processades (Absorbància corregida en AU, no mAU)
+                        # Ho fem servir per mitjanes de concentració
+                        avg_mAU = np.mean(y_processed)
+                        avg_AU = avg_mAU / 1000.0
+
+                        # --- CÀLCUL DE CONCENTRACIONS (Mitjana del pic) ---
+                        conc_mg_ml = 0.0
+                        conc_uM = 0.0
+                        
+                        if path_length > 0:
+                            # 1. Calcular mg/mL
+                            if coeff_type == "Abs 0.1% (1 g/L)" and ext_coeff_mass > 0:
+                                conc_mg_ml = avg_AU / (ext_coeff_mass * path_length)
+                            elif coeff_type == "Molar (M⁻¹ cm⁻¹)" and ext_coeff_molar > 0 and mol_weight > 0:
+                                molarity = avg_AU / (ext_coeff_molar * path_length) # mol/L
+                                conc_mg_ml = molarity * mol_weight * 1000.0 # g/L = mg/mL
                             
-                        # Integració: Àrea en mAU * mL
+                            # 2. Calcular µM
+                            if mol_weight > 0:
+                                # Convertim mg/mL a Molar -> (g/L) / (g/mol) = mol/L
+                                molarity_calc = (conc_mg_ml) / mol_weight 
+                                conc_uM = molarity_calc * 1e6
+
+                        # --- Integració (Massa Total) ---
                         area_mAU_mL = np.trapz(y_processed, x_vals)
                         area_AU_mL = area_mAU_mL / 1000.0
                         
-                        # CÀLCUL DE LA MASSA (mg)
                         mass_mg = 0.0
-                        
                         if path_length > 0:
                             if coeff_type == "Abs 0.1% (1 g/L)" and ext_coeff_mass > 0:
-                                # Fórmula: Massa = Area / (Ext_mass * Path)
-                                # Unitats: (AU*mL) / ((mL/mg/cm) * cm) = mg
                                 mass_mg = area_AU_mL / (ext_coeff_mass * path_length)
-                                
                             elif coeff_type == "Molar (M⁻¹ cm⁻¹)" and ext_coeff_molar > 0 and mol_weight > 0:
-                                # Fórmula: Mols = Area / (Ext_molar * Path) -> Massa = Mols * MW
-                                # Area en AU*mL, per tant dividim per 1000 per tenir AU*L per la llei de Beer estàndard?
-                                # Beer: A = e * l * c(mol/L)
-                                # Integral A dV(mL) = e * l * mols * 1000 (per passar mL a L al revés... simplifiquem)
-                                # Massa (mg) = (Area_AU_mL * MW) / (Ext_molar * Path)
                                 mass_mg = (area_AU_mL * mol_weight) / (ext_coeff_molar * path_length)
 
-                        # Fraccions
-                        fracs_inside = df[(df['Fractions'].notna()) & (df['mL'].between(int_start, int_end))]['Fractions'].tolist()
-                        fracs_str = ", ".join([str(f) for f in fracs_inside]) if fracs_inside else "Cap"
+                        # Display Resultats Globals
+                        peak_vol = int_end - int_start
+                        
+                        c_res1, c_res2, c_res3, c_res4 = st.columns(4)
+                        c_res1.metric("Massa Total", f"{mass_mg:.3f} mg")
+                        c_res2.metric("Volum Pic", f"{peak_vol:.2f} mL")
+                        c_res3.metric("Conc. Mitjana", f"{conc_mg_ml:.3f} mg/mL")
+                        c_res4.metric("Conc. Mitjana", f"{conc_uM:.1f} µM")
 
-                        # Display
-                        st.markdown(f"""
-                        <div class="metric-box">
-                            <h3 style="margin:0; color:#2c3e50;">Àrea Total: {area_mAU_mL:.2f} mAU*mL</h3>
-                        </div>
-                        """, unsafe_allow_html=True)
+                        # ───────────────────────────────────────────────────────────
+                        # ANÀLISI PER FRACCIÓ (NOU!)
+                        # ───────────────────────────────────────────────────────────
+                        st.markdown("#### 🧪 Detall per Fracció (Dins del pic)")
                         
-                        c_res1, c_res2 = st.columns(2)
-                        c_res1.metric("Massa Total (mg)", f"{mass_mg:.4f} mg")
-                        c_res2.metric("Volum del Pic", f"{int_end - int_start:.2f} mL")
-                        
-                        st.info(f"🧪 **Fraccions:** {fracs_str}")
-                        
+                        if "Fractions" in df.columns:
+                            # Trobem canvis de fraccions
+                            frac_indices = df[df['Fractions'].notna()].index
+                            frac_data_list = []
+                            
+                            for i in range(len(frac_indices)):
+                                idx_start = frac_indices[i]
+                                # El final és el següent índex o el final del DF
+                                idx_end = frac_indices[i+1] if i < len(frac_indices)-1 else df.index[-1]
+                                
+                                # Obtenim mL i Nom
+                                f_ml_start = df.loc[idx_start, "mL"]
+                                f_ml_end = df.loc[idx_end, "mL"]
+                                f_name = df.loc[idx_start, "Fractions"]
+                                
+                                # Comprovem solapament amb la integració
+                                # Volem saber si aquesta fracció està dins del rang d'integració seleccionat
+                                overlap_start = max(f_ml_start, int_start)
+                                overlap_end = min(f_ml_end, int_end)
+                                
+                                if overlap_start < overlap_end:
+                                    # Calculem dades només d'aquest trosset
+                                    f_mask = (df["mL"] >= overlap_start) & (df["mL"] <= overlap_end)
+                                    f_sub = df[f_mask]
+                                    
+                                    if not f_sub.empty:
+                                        # Calculem mitjana en aquest tros
+                                        f_y_vals = f_sub[target_signal].values + offset_val
+                                        
+                                        # Apliquem baseline si cal (aproximada amb la general)
+                                        if baseline_mode == "Lineal (Inici-Fi)":
+                                            f_x_vals = f_sub["mL"].values
+                                            # Fem servir la recta general calculada abans
+                                            f_base = y_vals[0] + slope * (f_x_vals - x_vals[0])
+                                            f_y_processed = f_y_vals - f_base
+                                        else:
+                                            f_y_processed = f_y_vals
+                                        
+                                        f_avg_mAU = np.mean(f_y_processed)
+                                        f_avg_AU = f_avg_mAU / 1000.0
+                                        
+                                        # Càlculs Fracció
+                                        f_mg_ml = 0.0
+                                        f_uM = 0.0
+                                        if path_length > 0:
+                                            if coeff_type == "Abs 0.1% (1 g/L)" and ext_coeff_mass > 0:
+                                                f_mg_ml = f_avg_AU / (ext_coeff_mass * path_length)
+                                            elif coeff_type == "Molar (M⁻¹ cm⁻¹)" and ext_coeff_molar > 0:
+                                                molar = f_avg_AU / (ext_coeff_molar * path_length)
+                                                f_mg_ml = molar * mol_weight * 1000.0
+                                            
+                                            if mol_weight > 0:
+                                                f_uM = (f_mg_ml / mol_weight) * 1e6
+
+                                        frac_data_list.append({
+                                            "Fracció": f_name,
+                                            "Volum (mL)": f"{overlap_end - overlap_start:.2f}",
+                                            "Abs Mitjana (mAU)": f"{f_avg_mAU:.1f}",
+                                            "Conc (mg/mL)": f"{f_mg_ml:.3f}",
+                                            "Conc (µM)": f"{f_uM:.1f}"
+                                        })
+                            
+                            if frac_data_list:
+                                st.dataframe(pd.DataFrame(frac_data_list), use_container_width=True)
+                            else:
+                                st.info("No s'han trobat fraccions dins d'aquest rang.")
+
                         with st.expander("Veure àrea integrada"):
                             fig_area, ax_area = plt.subplots(figsize=(6, 2))
                             ax_area.plot(x_vals, y_vals, 'b-', label="Senyal")
