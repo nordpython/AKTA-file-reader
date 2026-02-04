@@ -10,7 +10,7 @@ import contextlib
 import io
 
 # ───────────────────────────────────────────────────────────────────────────────
-# 🚑 PARCHE NUMPY 2.0
+# 🚑 NUMPY 2.0 PATCH
 # ───────────────────────────────────────────────────────────────────────────────
 if not hasattr(np, 'trapz'):
     np.trapz = np.trapezoid
@@ -18,7 +18,7 @@ if not hasattr(np, 'trapz'):
 import proteovis as pv
 
 # ───────────────────────────────────────────────────────────────────────────────
-# CONFIGURACIÓ DE LA PÀGINA
+# PAGE CONFIGURATION
 # ───────────────────────────────────────────────────────────────────────────────
 st.set_page_config(page_title="Akta Viewer Pro", layout="wide", page_icon="🧬")
 
@@ -40,10 +40,10 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.title("🧬 Visualitzador de Cromatografia Akta (Versió Completa)")
+st.title("🧬 Akta Chromatogram Viewer (Full Version)")
 
 # ───────────────────────────────────────────────────────────────────────────────
-# FUNCIONS AUXILIARS
+# HELPER FUNCTIONS
 # ───────────────────────────────────────────────────────────────────────────────
 def _xy_from_series_value(val):
     def to_float_list(a):
@@ -84,9 +84,9 @@ def carregar_fitxer(path):
             for Parser in parsers:
                 try: obj = Parser(path); obj.load(); data = obj; break
                 except: pass
-            if data is None: raise RuntimeError("No s'ha pogut llegir el .res")
+            if data is None: raise RuntimeError("Could not read .res file")
         else:
-            raise ValueError(f"Extensió no suportada: {ext}")
+            raise ValueError(f"Unsupported extension: {ext}")
 
     curve_keys = []
     for k in data.keys():
@@ -98,7 +98,7 @@ def carregar_fitxer(path):
         valid = np.isfinite(x) & np.isfinite(y)
         if valid.sum() >= 2: curve_keys.append(k)
 
-    if not curve_keys: raise RuntimeError("No s'han trobat corbes vàlides.")
+    if not curve_keys: raise RuntimeError("No valid curves found in data.")
 
     x0, y0 = _xy_from_series_value(data[curve_keys[0]]["data"])
     df = pd.DataFrame({"mL": x0})
@@ -126,10 +126,10 @@ def carregar_fitxer(path):
     return df, data, os.path.basename(path)
 
 # ───────────────────────────────────────────────────────────────────────────────
-# UI PRINCIPAL
+# MAIN UI
 # ───────────────────────────────────────────────────────────────────────────────
 
-uploaded_file = st.file_uploader("📂 Arrossega el fitxer (.zip, .res, .result)", type=['zip', 'res', 'result'])
+uploaded_file = st.file_uploader("📂 Drag and drop file (.zip, .res, .result)", type=['zip', 'res', 'result'])
 
 if uploaded_file is not None:
     with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(uploaded_file.name)[1]) as tmp:
@@ -137,9 +137,10 @@ if uploaded_file is not None:
         tmp_path = tmp.name
 
     try:
-        df, data, file_name = carregar_fitxer(tmp_path)
+        df, data, _ = carregar_fitxer(tmp_path) # Ignorem el nom temporal
+        real_filename = uploaded_file.name # Agafem el nom real
         
-        # --- Inicialització Memòria ---
+        # --- Memory Initialization ---
         current_uv1_off = st.session_state.get('uv1_off', 0.0)
         current_uv2_off = st.session_state.get('uv2_off', 0.0)
         
@@ -147,7 +148,7 @@ if uploaded_file is not None:
         possibles_uv = [k for k in cols if "UV" in k.upper()]
         possibles_y2 = [k for k in cols if k not in possibles_uv and k not in ["mL", "Fractions", "260/280"]]
         
-        # Auto-Càlcul inicial Rangs
+        # Auto-Calc Initial Ranges
         calc_min_y, calc_max_y = 0.0, 100.0
         default_y1 = possibles_uv[0] if possibles_uv else None
         
@@ -168,11 +169,11 @@ if uploaded_file is not None:
         # ───────────────────────────────────────────────────────────────────────────────
         # SIDEBAR
         # ───────────────────────────────────────────────────────────────────────────────
-        st.sidebar.header("⚙️ Configuració")
+        st.sidebar.header("⚙️ Configuration")
         
-        with st.sidebar.expander("📊 Senyals", expanded=True):
+        with st.sidebar.expander("📊 Signals & Colors", expanded=True):
             c1, c2 = st.columns(2)
-            y1a_label = c1.selectbox("UV 1", options=possibles_uv, index=0, key='sel_uv1')
+            y1a_label = c1.selectbox("UV 1 (Main)", options=possibles_uv, index=0, key='sel_uv1')
             y1a_color = c2.color_picker("Color", "#1f77b4", key='col_uv1')
             
             c3, c4 = st.columns(2)
@@ -180,19 +181,19 @@ if uploaded_file is not None:
             y1b_color = c4.color_picker("Color", "#ff0000", key='col_uv2')
             
             c5, c6 = st.columns(2)
-            y2_label = c5.selectbox("Y Secundari", options=[""] + possibles_y2, key='sel_y2')
+            y2_label = c5.selectbox("Secondary Y", options=[""] + possibles_y2, key='sel_y2')
             y2_color = c6.color_picker("Color", "#2ca02c", key='col_y2')
 
-        with st.sidebar.expander("📏 Zoom i Rangs", expanded=True):
+        with st.sidebar.expander("📏 Dimensions & Ranges (Zoom)", expanded=True):
             cd1, cd2 = st.columns(2)
-            figwidth = cd1.number_input("Amplada", value=14, step=1, key='fig_w')
-            figheight = cd2.number_input("Altura", value=6, step=1, key='fig_h')
+            figwidth = cd1.number_input("Width", value=14, step=1, key='fig_w')
+            figheight = cd2.number_input("Height", value=6, step=1, key='fig_h')
             
             st.markdown("---")
             col_x1, col_x2 = st.columns(2)
             xmin = col_x1.number_input("Min X (mL)", step=1.0, key='xmin_input')
             xmax = col_x2.number_input("Max X (mL)", step=1.0, key='xmax_input')
-            x_tick_step = st.number_input("Pas Ticks X", value=5.0, min_value=0.1, step=0.5, key='x_step')
+            x_tick_step = st.number_input("X Tick Step", value=5.0, min_value=0.1, step=0.5, key='x_step')
 
             col_y1, col_y2 = st.columns(2)
             ymin = col_y1.number_input("Min Y (mAU)", step=5.0, format="%.1f", key='ymin_input')
@@ -200,32 +201,35 @@ if uploaded_file is not None:
             
             y2_ymin, y2_ymax = 0.0, 100.0
             if y2_label:
-                st.markdown("**Eix Secundari**")
+                st.markdown("**Secondary Axis**")
                 c_y2_1, c_y2_2 = st.columns(2)
                 if 'y2_max_input' not in st.session_state:
                      st.session_state.y2_max_input = float(df[y2_label].max()) + 10.0
                 y2_ymin = c_y2_1.number_input("Min Y2", value=0.0, key='y2_min_input')
                 y2_ymax = c_y2_2.number_input("Max Y2", key='y2_max_input')
 
-        with st.sidebar.expander("🧪 Fraccions", expanded=False):
-            show_fractions = st.checkbox("Mostrar Fraccions", value=True, key='show_fracs')
-            frac_step = st.number_input("Etiqueta cada N", value=1, min_value=1, key='frac_step')
-            tick_h = st.slider("Alçada", 1.0, 300.0, float((ymax-ymin)*0.1) if (ymax-ymin) > 0 else 10.0, key='frac_h')
-            label_offset = st.number_input("Posició Text", min_value=0.0, value=2.0, step=0.5, key='frac_offset')
-            font_frac = st.slider("Mida Text", 6, 20, 9, key='frac_font')
+        with st.sidebar.expander("🧪 Fractions", expanded=False):
+            show_fractions = st.checkbox("Show Fractions", value=True, key='show_fracs')
+            frac_step = st.number_input("Label every N", value=1, min_value=1, key='frac_step')
+            tick_h = st.slider("Red Line Height", 1.0, 300.0, 1.0, key='frac_h')
+            label_offset = st.number_input("Text Position (Vertical)", min_value=0.0, value=0.0, step=0.5, key='frac_offset')
+            font_frac = st.slider("Font Size", 6, 20, 9, key='frac_font')
 
-        with st.sidebar.expander("🎨 Estils", expanded=False):
-            font_title = st.slider("Títol", 10, 40, 16, key='f_title')
-            font_labels = st.slider("Etiquetes", 8, 30, 12, key='f_labels')
-            font_ticks = st.slider("Ticks", 8, 20, 10, key='f_ticks')
-            font_legend = st.slider("Llegenda", 8, 20, 10, key='f_legend')
+        with st.sidebar.expander("🎨 Styles", expanded=False):
+            # 🟢 NEW: Editable Title
+            plot_title = st.text_input("Chart Title", value=f"Chromatogram – {real_filename}")
+            
+            font_title = st.slider("Title Size", 10, 40, 16, key='f_title')
+            font_labels = st.slider("Axis Labels", 8, 30, 12, key='f_labels')
+            font_ticks = st.slider("Axis Numbers", 8, 20, 10, key='f_ticks')
+            font_legend = st.slider("Legend", 8, 20, 10, key='f_legend')
 
-        with st.sidebar.expander("🛠️ Extres", expanded=False):
+        with st.sidebar.expander("🛠️ Extras (Offsets)", expanded=False):
             uv1_offset = st.number_input("Offset UV1", step=0.5, key='uv1_off')
             uv2_offset = st.number_input("Offset UV2", step=0.5, key='uv2_off')
 
         # ───────────────────────────────────────────────────────────────────────────────
-        # GRÀFIC
+        # PLOTTING
         # ───────────────────────────────────────────────────────────────────────────────
         fig, ax1 = plt.subplots(figsize=(figwidth, figheight))
 
@@ -239,7 +243,9 @@ if uploaded_file is not None:
         ax1.set_xlabel("Elution volume (mL)", fontsize=font_labels)
         ax1.set_ylabel("Absorbance (mAU)", fontsize=font_labels)
         ax1.tick_params(axis='both', labelsize=font_ticks)
-        ax1.set_title(f"Chromatogram – {file_name}", fontsize=font_title)
+        
+        # 🟢 Use Custom Title
+        ax1.set_title(plot_title, fontsize=font_title)
 
         if x_tick_step > 0:
             ax1.xaxis.set_major_locator(ticker.MultipleLocator(x_tick_step))
@@ -270,39 +276,39 @@ if uploaded_file is not None:
         st.pyplot(fig)
 
         # ───────────────────────────────────────────────────────────────────────────────
-        # MÒDUL D'INTEGRACIÓ DE PICS
+        # INTEGRATION MODULE
         # ───────────────────────────────────────────────────────────────────────────────
-        with st.expander("🧮 Càlculs i Integració de Pics", expanded=True):
+        with st.expander("🧮 Peak Integration & Calculations", expanded=True):
             col_calc1, col_calc2 = st.columns([1, 2])
             
             with col_calc1:
-                st.markdown("#### 1. Paràmetres")
-                int_start = st.number_input("Inici (mL)", value=xmin, step=0.5)
-                int_end = st.number_input("Final (mL)", value=xmax, step=0.5)
+                st.markdown("#### 1. Integration Parameters")
+                int_start = st.number_input("Start (mL)", value=xmin, step=0.5)
+                int_end = st.number_input("End (mL)", value=xmax, step=0.5)
                 
-                target_signal = st.selectbox("Senyal a Integrar", [y1a_label, y1b_label])
-                baseline_mode = st.selectbox("Correcció Base", ["Cap", "Lineal (Inici-Fi)"])
+                target_signal = st.selectbox("Signal to Integrate", [y1a_label, y1b_label])
+                baseline_mode = st.selectbox("Baseline Correction", ["None", "Linear (Start-End)"])
                 
-                st.markdown("#### 2. Dades Proteïna")
-                path_length = st.number_input("Camí Òptic (cm)", value=0.2, format="%.2f", help="Normalment 0.2 o 0.5 a l'Akta")
+                st.markdown("#### 2. Protein Data")
+                path_length = st.number_input("Path Length (cm)", value=0.2, format="%.2f", help="Usually 0.2 cm (2mm) for Akta")
                 
-                coeff_type = st.radio("Tipus Coeficient", ["Abs 0.1% (1 g/L)", "Molar (M⁻¹ cm⁻¹)"])
+                coeff_type = st.radio("Extinction Coefficient Type", ["Abs 0.1% (1 g/L)", "Molar (M⁻¹ cm⁻¹)"], 
+                                      help="For complexes (e.g., 4A + 1B), sum the Molar coefficients. Do NOT sum Abs 0.1%.")
                 
                 if coeff_type == "Abs 0.1% (1 g/L)":
-                    ext_coeff_mass = st.number_input("Valor Abs 0.1%", value=1.0, format="%.3f")
+                    ext_coeff_mass = st.number_input("Abs 0.1% Value", value=1.0, format="%.3f")
                     ext_coeff_molar = None
                 else:
-                    ext_coeff_molar = st.number_input("Valor Molar (ε)", value=50000.0, format="%.1f")
+                    ext_coeff_molar = st.number_input("Molar Value (ε)", value=50000.0, format="%.1f")
                     ext_coeff_mass = None
                 
-                mol_weight = st.number_input("Pes Molecular (Da)", value=10000.0, format="%.1f", help="Necessari per calcular µM")
+                mol_weight = st.number_input("Molecular Weight (Da)", value=10000.0, format="%.1f", help="Required for µM calculation")
                 
-                # 🟢 NOU: Control de Decimals
-                st.markdown("#### 3. Format Taula")
-                decimals = st.number_input("Decimals (Taula)", value=4, min_value=1, max_value=8)
+                st.markdown("#### 3. Table Format")
+                decimals = st.number_input("Decimals", value=4, min_value=1, max_value=8)
 
             with col_calc2:
-                st.markdown("#### Resultats del Pic")
+                st.markdown("#### Peak Results")
                 if target_signal and target_signal in df.columns:
                     mask = (df["mL"] >= int_start) & (df["mL"] <= int_end)
                     sub_df = df[mask].copy()
@@ -312,7 +318,7 @@ if uploaded_file is not None:
                         offset_val = uv1_offset if target_signal == y1a_label else uv2_offset
                         y_vals = sub_df[target_signal].values + offset_val
                         
-                        if baseline_mode == "Lineal (Inici-Fi)":
+                        if baseline_mode == "Linear (Start-End)":
                             slope = (y_vals[-1] - y_vals[0]) / (x_vals[-1] - x_vals[0])
                             baseline = y_vals[0] + slope * (x_vals - x_vals[0])
                             y_processed = y_vals - baseline
@@ -323,7 +329,7 @@ if uploaded_file is not None:
                         avg_mAU = np.mean(y_processed)
                         avg_AU = avg_mAU / 1000.0
 
-                        # --- CÀLCUL DE CONCENTRACIONS ---
+                        # --- CONCENTRATION CALCULATION ---
                         conc_mg_ml = 0.0
                         conc_uM = 0.0
                         
@@ -351,15 +357,15 @@ if uploaded_file is not None:
                         peak_vol = int_end - int_start
                         
                         c_res1, c_res2, c_res3, c_res4 = st.columns(4)
-                        c_res1.metric("Massa Total", f"{mass_mg:.{decimals}f} mg")
-                        c_res2.metric("Volum Pic", f"{peak_vol:.2f} mL")
-                        c_res3.metric("Conc. Mitjana", f"{conc_mg_ml:.{decimals}f} mg/mL")
-                        c_res4.metric("Conc. Mitjana", f"{conc_uM:.{decimals}f} µM")
+                        c_res1.metric("Total Mass", f"{mass_mg:.{decimals}f} mg")
+                        c_res2.metric("Peak Volume", f"{peak_vol:.2f} mL")
+                        c_res3.metric("Avg. Conc.", f"{conc_mg_ml:.{decimals}f} mg/mL")
+                        c_res4.metric("Avg. Conc.", f"{conc_uM:.{decimals}f} µM")
 
                         # ───────────────────────────────────────────────────────────
-                        # ANÀLISI PER FRACCIÓ (FORMAT CONFIGURABLE)
+                        # FRACTION DETAILS
                         # ───────────────────────────────────────────────────────────
-                        st.markdown("#### 🧪 Detall per Fracció (Dins del pic)")
+                        st.markdown("#### 🧪 Fraction Details (Inside Peak)")
                         
                         if "Fractions" in df.columns:
                             frac_indices = df[df['Fractions'].notna()].index
@@ -382,7 +388,7 @@ if uploaded_file is not None:
                                     
                                     if not f_sub.empty:
                                         f_y_vals = f_sub[target_signal].values + offset_val
-                                        if baseline_mode == "Lineal (Inici-Fi)":
+                                        if baseline_mode == "Linear (Start-End)":
                                             f_x_vals = f_sub["mL"].values
                                             f_base = y_vals[0] + slope * (f_x_vals - x_vals[0])
                                             f_y_processed = f_y_vals - f_base
@@ -405,10 +411,9 @@ if uploaded_file is not None:
                                                 f_uM = (f_mg_ml / mol_weight) * 1e6
 
                                         frac_data_list.append({
-                                            "Fracció": f_name,
-                                            "Volum (mL)": f"{overlap_end - overlap_start:.2f}",
-                                            # ÚS DE F-STRINGS DINÀMICS PER DECIMALS
-                                            "Abs Mitjana (mAU)": f"{f_avg_mAU:.1f}",
+                                            "Fraction": f_name,
+                                            "Volume (mL)": f"{overlap_end - overlap_start:.2f}",
+                                            "Avg Abs (mAU)": f"{f_avg_mAU:.1f}",
                                             "Conc (mg/mL)": f"{f_mg_ml:.{decimals}f}",
                                             "Conc (µM)": f"{f_uM:.{decimals}f}"
                                         })
@@ -416,19 +421,19 @@ if uploaded_file is not None:
                             if frac_data_list:
                                 st.dataframe(pd.DataFrame(frac_data_list), use_container_width=True)
                             else:
-                                st.info("No s'han trobat fraccions dins d'aquest rang.")
+                                st.info("No fractions found in this range.")
 
-                        with st.expander("Veure àrea integrada"):
+                        with st.expander("View integrated area"):
                             fig_area, ax_area = plt.subplots(figsize=(6, 2))
-                            ax_area.plot(x_vals, y_vals, 'b-', label="Senyal")
-                            if baseline_mode == "Lineal (Inici-Fi)":
-                                ax_area.plot(x_vals, baseline, 'k--', label="Base", alpha=0.5)
-                            ax_area.fill_between(x_vals, y_vals, baseline if baseline_mode == "Lineal (Inici-Fi)" else 0, alpha=0.3, color='green')
+                            ax_area.plot(x_vals, y_vals, 'b-', label="Signal")
+                            if baseline_mode == "Linear (Start-End)":
+                                ax_area.plot(x_vals, baseline, 'k--', label="Baseline", alpha=0.5)
+                            ax_area.fill_between(x_vals, y_vals, baseline if baseline_mode == "Linear (Start-End)" else 0, alpha=0.3, color='green')
                             st.pyplot(fig_area)
                     else:
-                        st.warning("No hi ha dades en aquest rang.")
+                        st.warning("No data in this range.")
 
-        with st.expander("📋 Dades Brutes"):
+        with st.expander("📋 Raw Data"):
             st.dataframe(df)
 
     except Exception as e:
