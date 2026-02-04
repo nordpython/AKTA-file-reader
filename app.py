@@ -129,14 +129,13 @@ if uploaded_files:
     
     # Bucle de càrrega conservant el nom original
     for up_file in uploaded_files:
-        original_name = up_file.name # Guardem el nom original aquí
+        original_name = up_file.name
         
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(up_file.name)[1]) as tmp:
             tmp.write(up_file.getvalue())
             tmp_path = tmp.name
         
         try:
-            # Passem el fitxer a carregar, però guardem el nom original a la llista
             df, data = carregar_fitxer(tmp_path)
             all_datasets.append({'name': original_name, 'df': df})
         except Exception as e:
@@ -159,8 +158,8 @@ if uploaded_files:
         # --- Sidebar Controls ---
         st.sidebar.header("⚙️ Configuració (Mode Detall)")
         
-        # 🟢 NOVETAT: Nom Editable
-        custom_name = st.sidebar.text_input("📝 Nom del Gràfic (Llegenda)", value=original_name)
+        # 🟢 NOVETAT: Títol Editable (no afecta la llegenda)
+        chart_title = st.sidebar.text_input("📝 Títol del Gràfic", value=original_name)
         
         # Recuperem memòria
         current_uv1_off = st.session_state.get('uv1_off', 0.0)
@@ -252,9 +251,8 @@ if uploaded_files:
         # PLOT SINGLE
         fig, ax1 = plt.subplots(figsize=(figwidth, figheight))
         if y1a_label and y1a_label in df.columns:
-            # Fem servir custom_name a la llegenda
-            label_text = f"{y1a_label} ({custom_name})" if y1b_label else custom_name
-            ax1.plot(df["mL"], df[y1a_label] + uv1_offset, label=label_text, color=y1a_color)
+            # 🟢 NOVETAT: Llegenda Neta (només el nom del senyal)
+            ax1.plot(df["mL"], df[y1a_label] + uv1_offset, label=y1a_label, color=y1a_color)
             
         if y1b_label and y1b_label in df.columns and y1b_label != y1a_label:
             ax1.plot(df["mL"], df[y1b_label] + uv2_offset, label=y1b_label, color=y1b_color)
@@ -264,7 +262,10 @@ if uploaded_files:
         ax1.set_xlabel("Elution volume (mL)", fontsize=font_labels)
         ax1.set_ylabel("Absorbance (mAU)", fontsize=font_labels)
         ax1.tick_params(axis='both', labelsize=font_ticks)
-        ax1.set_title(f"Chromatogram – {custom_name}", fontsize=font_title)
+        
+        # 🟢 NOVETAT: Títol Editable
+        ax1.set_title(chart_title, fontsize=font_title)
+        
         if x_tick_step > 0: ax1.xaxis.set_major_locator(ticker.MultipleLocator(x_tick_step))
 
         if show_fractions and "Fractions" in df.columns:
@@ -303,16 +304,19 @@ if uploaded_files:
         
         st.sidebar.header("⚙️ Configuració (Comparació)")
         
-        # 🟢 NOVETAT: Edició de noms en massa
+        signal_to_compare = st.sidebar.selectbox("Quin senyal vols comparar?", options=possibles_uv_comp, index=0)
+        
+        # 🟢 NOVETAT: Títol Editable General per a Comparació
+        default_comp_title = f"Comparativa – {signal_to_compare}"
+        chart_title_comp = st.sidebar.text_input("📝 Títol del Gràfic", value=default_comp_title)
+
         st.sidebar.markdown("### 🏷️ Editar Noms (Llegenda)")
         renamed_datasets = []
         for i, d in enumerate(all_datasets):
-            # Input de text per canviar el nom de cada fitxer
             new_name = st.sidebar.text_input(f"Fitxer {i+1}", value=d['name'], key=f"rename_{i}")
             renamed_datasets.append({'name': new_name, 'df': d['df']})
         
         st.sidebar.markdown("---")
-        signal_to_compare = st.sidebar.selectbox("Quin senyal vols comparar?", options=possibles_uv_comp, index=0)
         
         with st.sidebar.expander("📏 Mides i Rangs", expanded=True):
             st.markdown("**Dimensions**")
@@ -345,6 +349,7 @@ if uploaded_files:
             ddf = dataset['df']
             
             if signal_to_compare in ddf.columns:
+                # La llegenda mostra el nom del fitxer (o el reanomenat)
                 ax.plot(ddf["mL"], ddf[signal_to_compare], label=dname, alpha=0.8)
             else:
                 st.warning(f"El fitxer {dname} no té el senyal {signal_to_compare}")
@@ -353,7 +358,10 @@ if uploaded_files:
         ax.set_ylim(ymin_c, ymax_c)
         ax.set_xlabel("Elution volume (mL)", fontsize=12)
         ax.set_ylabel(f"{signal_to_compare} (mAU)", fontsize=12)
-        ax.set_title(f"Comparativa – {signal_to_compare}", fontsize=16)
+        
+        # 🟢 NOVETAT: Títol des de l'input
+        ax.set_title(chart_title_comp, fontsize=16)
+        
         ax.legend(loc='upper right')
         ax.grid(True, linestyle=':', alpha=0.6)
         
