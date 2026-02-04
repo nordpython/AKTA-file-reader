@@ -296,6 +296,10 @@ if uploaded_file is not None:
                     ext_coeff_mass = None
                 
                 mol_weight = st.number_input("Pes Molecular (Da)", value=10000.0, format="%.1f", help="Necessari per calcular µM")
+                
+                # 🟢 NOU: Control de Decimals
+                st.markdown("#### 3. Format Taula")
+                decimals = st.number_input("Decimals (Taula)", value=4, min_value=1, max_value=8)
 
             with col_calc2:
                 st.markdown("#### Resultats del Pic")
@@ -308,7 +312,6 @@ if uploaded_file is not None:
                         offset_val = uv1_offset if target_signal == y1a_label else uv2_offset
                         y_vals = sub_df[target_signal].values + offset_val
                         
-                        # Baseline Calculation
                         if baseline_mode == "Lineal (Inici-Fi)":
                             slope = (y_vals[-1] - y_vals[0]) / (x_vals[-1] - x_vals[0])
                             baseline = y_vals[0] + slope * (x_vals - x_vals[0])
@@ -317,33 +320,24 @@ if uploaded_file is not None:
                             y_processed = y_vals
                             baseline = np.zeros_like(y_vals)
                         
-                        # Mitjanes
                         avg_mAU = np.mean(y_processed)
                         avg_AU = avg_mAU / 1000.0
 
-                        # --- CÀLCUL DE CONCENTRACIONS (CORREGIT) ---
+                        # --- CÀLCUL DE CONCENTRACIONS ---
                         conc_mg_ml = 0.0
                         conc_uM = 0.0
                         
                         if path_length > 0:
-                            # 1. Calcular mg/mL
                             if coeff_type == "Abs 0.1% (1 g/L)" and ext_coeff_mass > 0:
                                 conc_mg_ml = avg_AU / (ext_coeff_mass * path_length)
                             elif coeff_type == "Molar (M⁻¹ cm⁻¹)" and ext_coeff_molar > 0 and mol_weight > 0:
-                                molarity = avg_AU / (ext_coeff_molar * path_length) # mol/L
-                                # mol/L * g/mol = g/L. I 1 g/L = 1 mg/mL.
-                                # Per tant NO multipliquem per 1000
+                                molarity = avg_AU / (ext_coeff_molar * path_length)
                                 conc_mg_ml = molarity * mol_weight 
                             
-                            # 2. Calcular µM
                             if mol_weight > 0:
-                                # (mg/mL) / MW = mol/L? No
-                                # mg/mL = g/L
-                                # (g/L) / (g/mol) = mol/L
                                 molarity_calc = (conc_mg_ml) / mol_weight 
                                 conc_uM = molarity_calc * 1e6
 
-                        # --- Integració (Massa Total) ---
                         area_mAU_mL = np.trapz(y_processed, x_vals)
                         area_AU_mL = area_mAU_mL / 1000.0
                         
@@ -352,27 +346,18 @@ if uploaded_file is not None:
                             if coeff_type == "Abs 0.1% (1 g/L)" and ext_coeff_mass > 0:
                                 mass_mg = area_AU_mL / (ext_coeff_mass * path_length)
                             elif coeff_type == "Molar (M⁻¹ cm⁻¹)" and ext_coeff_molar > 0 and mol_weight > 0:
-                                # Area (AU*mL) = Integral de (e * l * C_molar) dV(mL)
-                                # Mass = mols * MW
-                                # Integral C_molar dV(mL) = mols * 1000 (per passar mL a L)
-                                # Area_AU_mL = e * l * (mols * 1000)
-                                # mols = Area_AU_mL / (e * l * 1000)
-                                # Mass(g) = mols * MW
-                                # Mass(mg) = Mass(g) * 1000 = (Area * MW / (e * l * 1000)) * 1000
-                                # Mass(mg) = (Area * MW) / (e * l)
                                 mass_mg = (area_AU_mL * mol_weight) / (ext_coeff_molar * path_length)
 
-                        # Display
                         peak_vol = int_end - int_start
                         
                         c_res1, c_res2, c_res3, c_res4 = st.columns(4)
-                        c_res1.metric("Massa Total", f"{mass_mg:.3f} mg")
+                        c_res1.metric("Massa Total", f"{mass_mg:.{decimals}f} mg")
                         c_res2.metric("Volum Pic", f"{peak_vol:.2f} mL")
-                        c_res3.metric("Conc. Mitjana", f"{conc_mg_ml:.3f} mg/mL")
-                        c_res4.metric("Conc. Mitjana", f"{conc_uM:.1f} µM")
+                        c_res3.metric("Conc. Mitjana", f"{conc_mg_ml:.{decimals}f} mg/mL")
+                        c_res4.metric("Conc. Mitjana", f"{conc_uM:.{decimals}f} µM")
 
                         # ───────────────────────────────────────────────────────────
-                        # ANÀLISI PER FRACCIÓ (CORREGIT)
+                        # ANÀLISI PER FRACCIÓ (FORMAT CONFIGURABLE)
                         # ───────────────────────────────────────────────────────────
                         st.markdown("#### 🧪 Detall per Fracció (Dins del pic)")
                         
@@ -407,7 +392,6 @@ if uploaded_file is not None:
                                         f_avg_mAU = np.mean(f_y_processed)
                                         f_avg_AU = f_avg_mAU / 1000.0
                                         
-                                        # Càlculs Fracció (CORREGITS TAMBÉ AQUÍ)
                                         f_mg_ml = 0.0
                                         f_uM = 0.0
                                         if path_length > 0:
@@ -415,7 +399,7 @@ if uploaded_file is not None:
                                                 f_mg_ml = f_avg_AU / (ext_coeff_mass * path_length)
                                             elif coeff_type == "Molar (M⁻¹ cm⁻¹)" and ext_coeff_molar > 0:
                                                 molar = f_avg_AU / (ext_coeff_molar * path_length)
-                                                f_mg_ml = molar * mol_weight  # SENSE * 1000
+                                                f_mg_ml = molar * mol_weight
                                             
                                             if mol_weight > 0:
                                                 f_uM = (f_mg_ml / mol_weight) * 1e6
@@ -423,9 +407,10 @@ if uploaded_file is not None:
                                         frac_data_list.append({
                                             "Fracció": f_name,
                                             "Volum (mL)": f"{overlap_end - overlap_start:.2f}",
+                                            # ÚS DE F-STRINGS DINÀMICS PER DECIMALS
                                             "Abs Mitjana (mAU)": f"{f_avg_mAU:.1f}",
-                                            "Conc (mg/mL)": f"{f_mg_ml:.3f}",
-                                            "Conc (µM)": f"{f_uM:.1f}"
+                                            "Conc (mg/mL)": f"{f_mg_ml:.{decimals}f}",
+                                            "Conc (µM)": f"{f_uM:.{decimals}f}"
                                         })
                             
                             if frac_data_list:
