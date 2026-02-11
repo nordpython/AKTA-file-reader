@@ -1,7 +1,3 @@
-# Repositori i instal·lació del paquet
-!git clone -q https://github.com/josocjo/Colab-akta-chromatogram-viewer.git
-%cd -q Colab-akta-chromatogram-viewer
-!pip -q install .
 
 
 import streamlit as st
@@ -502,6 +498,7 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
 
 
 
