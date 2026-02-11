@@ -4,4 +4,5 @@ numpy
 matplotlib
 openpyxl
 xmltodict
-git+https://github.com/Tsuchihashi-ryo/proteovis.git
+git+https://github.com/josocjo/Colab-akta-chromatogram-viewer.git
+
