@@ -388,6 +388,35 @@ if uploaded_files:
     # MODE 2: MULTI-FILE OVERLAY
     # ───────────────────────────────────────────────────────────────────────────
     elif mode == "📈 Multi-File Comparison (Overlay)":
+
+        #pricnipi
+        with st.sidebar.expander("📏 Ranges & Options", expanded=True):
+                # --- Codi existent per l'eix X ---
+                all_min_x = min([d["df"]["mL"].min() for d in loaded_dfs])
+                all_max_x = max([d["df"]["mL"].max() for d in loaded_dfs])
+                
+                c_rx1, c_rx2 = st.columns(2)
+                mx_min = c_rx1.number_input("Min X", value=float(all_min_x), step=1.0, key="m_xmin")
+                mx_max = c_rx2.number_input("Max X", value=float(all_max_x), step=1.0, key="m_xmax")
+                
+                st.markdown("---") # Separador visual
+                
+                # --- NOU CODI PER L'EIX Y ---
+                # Checkbox per decidir si volem automàtic o manual
+                auto_y = st.checkbox("Auto Y-Scale", value=False, key="m_autoy") 
+                
+                # Si NO és automàtic, mostrem els controls
+                if not auto_y:
+                    c_ry1, c_ry2 = st.columns(2)
+                    # Pots canviar els valors per defecte (-10 i 200) pel que et vagi millor
+                    my_min = c_ry1.number_input("Min Y", value=-10.0, step=10.0, format="%.1f", key="m_ymin")
+                    my_max = c_ry2.number_input("Max Y", value=200.0, step=10.0, format="%.1f", key="m_ymax")
+                
+                # Altres opcions visuals existents...
+                normalize_base = st.checkbox("Normalize Baseline (Start at 0)", value=True)
+                line_width = st.slider("Line Width", 0.5, 3.0, 1.5)
+                alpha = st.slider("Transparency", 0.1, 1.0, 0.8)
+        #final
         
         st.sidebar.markdown("---")
         st.sidebar.subheader("Overlay Settings")
@@ -516,3 +545,4 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
