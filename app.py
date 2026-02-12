@@ -387,36 +387,10 @@ if uploaded_files:
     # ───────────────────────────────────────────────────────────────────────────
     # MODE 2: MULTI-FILE OVERLAY
     # ───────────────────────────────────────────────────────────────────────────
+# ───────────────────────────────────────────────────────────────────────────
+    # MODE 2: MULTI-FILE OVERLAY
+    # ───────────────────────────────────────────────────────────────────────────
     elif mode == "📈 Multi-File Comparison (Overlay)":
-
-        #pricnipi
-        with st.sidebar.expander("📏 Ranges & Options", expanded=True):
-                # --- Codi existent per l'eix X ---
-                all_min_x = min([d["df"]["mL"].min() for d in loaded_dfs])
-                all_max_x = max([d["df"]["mL"].max() for d in loaded_dfs])
-                
-                c_rx1, c_rx2 = st.columns(2)
-                mx_min = c_rx1.number_input("Min X", value=float(all_min_x), step=1.0, key="m_xmin")
-                mx_max = c_rx2.number_input("Max X", value=float(all_max_x), step=1.0, key="m_xmax")
-                
-                st.markdown("---") # Separador visual
-                
-                # --- NOU CODI PER L'EIX Y ---
-                # Checkbox per decidir si volem automàtic o manual
-                auto_y = st.checkbox("Auto Y-Scale", value=False, key="m_autoy") 
-                
-                # Si NO és automàtic, mostrem els controls
-                if not auto_y:
-                    c_ry1, c_ry2 = st.columns(2)
-                    # Pots canviar els valors per defecte (-10 i 200) pel que et vagi millor
-                    my_min = c_ry1.number_input("Min Y", value=-10.0, step=10.0, format="%.1f", key="m_ymin")
-                    my_max = c_ry2.number_input("Max Y", value=200.0, step=10.0, format="%.1f", key="m_ymax")
-                
-                # Altres opcions visuals existents...
-                normalize_base = st.checkbox("Normalize Baseline (Start at 0)", value=True)
-                line_width = st.slider("Line Width", 0.5, 3.0, 1.5)
-                alpha = st.slider("Transparency", 0.1, 1.0, 0.8)
-        #final
         
         st.sidebar.markdown("---")
         st.sidebar.subheader("Overlay Settings")
@@ -424,7 +398,7 @@ if uploaded_files:
         loaded_dfs = []
         possible_signals = set()
         
-        # 1. CARGA DE ARCHIVOS
+        # 1. CARGA DE FITXERS
         with st.spinner("Loading files..."):
             for f in uploaded_files:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(f.name)[1]) as tmp:
@@ -432,7 +406,10 @@ if uploaded_files:
                     tmp_path = tmp.name
                 try:
                     df, _, _ = carregar_fitxer(tmp_path)
+                    
+                    # Guardem el DF original, la normalització la farem després de llegir els inputs
                     loaded_dfs.append({"name": f.name, "df": df})
+                    
                     for col in df.columns:
                         if "UV" in col.upper() or "Cond" in col or "Conc" in col:
                             possible_signals.add(col)
@@ -442,73 +419,87 @@ if uploaded_files:
         if not loaded_dfs:
             st.warning("No valid files loaded.")
         else:
-            # 2. MENU DINÁMICO: NORMALIZACIÓN INDIVIDUAL
-            # Creamos un diccionario para guardar los factores
+            # 2. MENÚ DINÀMIC: NORMALITZACIÓ INDIVIDUAL
             norm_factors = {}
             
             with st.sidebar.expander("⚖️ Normalice (Individual per file)", expanded=True):
-                st.caption("Ajusta el factor multiplicador para cada archivo individualmente:")
+                st.caption("Ajusta el factor multiplicador per a cada arxiu:")
                 for item in loaded_dfs:
                     fname = item["name"]
-                    # Usamos una clave única (key) basada en el nombre del archivo
+                    # Clau única per nom d'arxiu
                     val = st.number_input(f"Factor: {fname}", value=1.0, step=0.1, format="%.2f", key=f"norm_{fname}")
                     norm_factors[fname] = val
 
-            # 3. APLICAR NORMALIZACIÓN A LOS DATAFRAMES
+            # 3. APLICAR NORMALITZACIÓ
+            # Creem còpies o modifiquem els DFs segons el factor
             for item in loaded_dfs:
                 factor = norm_factors[item["name"]]
                 if factor != 1.0:
-                    df_temp = item["df"]
-                    for col in df_temp.columns:
+                    for col in item["df"].columns:
                         if "UV" in col.upper():
-                            df_temp[col] = df_temp[col] * factor
+                            item["df"][col] = item["df"][col] * factor
             
-            # 4. CONFIGURACIÓN DE GRÁFICA (RANGOS Y SEÑALES)
+            # 4. SELECCIÓ DE SENYALS
             sorted_sig = sorted(list(possible_signals))
             default_idx = 0
             for i, sig in enumerate(sorted_sig):
-                if "280" in sig:
-                    default_idx = i
-                    break
+                if "280" in sig: default_idx = i; break
             
             with st.sidebar.expander("📊 Signals Selection", expanded=True):
-                y1_sig = st.selectbox("Left Axis (Y1)", sorted_sig, index=default_idx)
-                y2_sig = st.selectbox("Right Axis (Y2 - Optional)", ["None"] + sorted_sig, index=0)
+                y1_sig = st.selectbox("Left Axis (Y1)", sorted_sig, index=default_idx, key="m_y1")
+                y2_sig = st.selectbox("Right Axis (Y2 - Optional)", ["None"] + sorted_sig, index=0, key="m_y2")
             
-            with st.sidebar.expander("📏 Ranges & Options", expanded=True):
-                # Recalculamos rangos DESPUÉS de aplicar la normalización
+            # 5. RANGS I OPCIONS (X i Y COMPLETS)
+            with st.sidebar.expander("📏 Ranges & Appearance", expanded=True):
+                # Dimensions del gràfic
+                c_dim1, c_dim2 = st.columns(2)
+                f_w = c_dim1.number_input("Width", value=14, step=1, key="m_fw")
+                f_h = c_dim2.number_input("Height", value=6, step=1, key="m_fh")
+                
+                st.markdown("---")
+                st.markdown("**X Axis Controls**")
+                
+                # Càlcul de màxims i mínims globals per defecte
                 all_min_x = min([d["df"]["mL"].min() for d in loaded_dfs])
                 all_max_x = max([d["df"]["mL"].max() for d in loaded_dfs])
                 
                 c_rx1, c_rx2 = st.columns(2)
-                mx_min = c_rx1.number_input("Min X", value=float(all_min_x), step=1.0)
-                mx_max = c_rx2.number_input("Max X", value=float(all_max_x), step=1.0)
+                mx_min = c_rx1.number_input("Min X", value=float(all_min_x), step=1.0, key="m_xmin")
+                mx_max = c_rx2.number_input("Max X", value=float(all_max_x), step=1.0, key="m_xmax")
                 
-                auto_y = st.checkbox("Auto Y-Scale", value=True)
+                # AQUEST ÉS EL NOU CONTROL DE PAS (STEP)
+                mx_step = st.number_input("X Step (Tick spacing)", value=5.0, min_value=0.1, key="m_xstep")
+                
+                st.markdown("---")
+                st.markdown("**Y Axis Controls**")
+                
+                auto_y = st.checkbox("Auto Y-Scale", value=True, key="m_autoy")
+                my_min, my_max = 0.0, 100.0
+                
                 if not auto_y:
                     c_ry1, c_ry2 = st.columns(2)
-                    my_min = c_ry1.number_input("Min Y", value=0.0)
-                    my_max = c_ry2.number_input("Max Y", value=100.0)
+                    my_min = c_ry1.number_input("Min Y", value=-10.0, step=10.0, format="%.1f", key="m_ymin")
+                    my_max = c_ry2.number_input("Max Y", value=200.0, step=10.0, format="%.1f", key="m_ymax")
                 
-                normalize_base = st.checkbox("Normalize Baseline (Start at 0)", value=True)
-                line_width = st.slider("Line Width", 0.5, 3.0, 1.5)
-                alpha = st.slider("Transparency", 0.1, 1.0, 0.8)
+                st.markdown("---")
+                normalize_base = st.checkbox("Normalize Baseline (Start at 0)", value=True, key="m_normbase")
+                line_width = st.slider("Line Width", 0.5, 3.0, 1.5, key="m_lw")
+                alpha = st.slider("Transparency", 0.1, 1.0, 0.8, key="m_alpha")
 
+            # Noms personalitzats
             with st.sidebar.expander("📝 Edit Legend Names", expanded=False):
                 custom_names = {}
                 for item in loaded_dfs:
                     orig = item["name"]
-                    custom_names[orig] = st.text_input(f"Name for {orig}", value=orig)
+                    custom_names[orig] = st.text_input(f"Name for {orig}", value=orig, key=f"leg_{orig}")
 
-            # 5. PLOTTING
+            # 6. PLOTTING
             st.markdown("### Comparison Chart")
-            
-            f_w = st.sidebar.number_input("Width", 14, key="mw")
-            f_h = st.sidebar.number_input("Height", 6, key="mh")
             
             fig, ax1 = plt.subplots(figsize=(f_w, f_h))
             colors = plt.cm.tab10(np.linspace(0, 1, len(loaded_dfs)))
             
+            # Bucle principal de plot
             for i, item in enumerate(loaded_dfs):
                 df = item["df"]
                 label = custom_names[item["name"]]
@@ -518,13 +509,21 @@ if uploaded_files:
                     if normalize_base: y_data = y_data - y_data[0]
                     ax1.plot(df["mL"], y_data, label=label, color=colors[i], linewidth=line_width, alpha=alpha)
             
+            # Aplicar límits X
             ax1.set_xlim(mx_min, mx_max)
-            if not auto_y: ax1.set_ylim(my_min, my_max)
+            
+            # Aplicar Pas de l'Eix X (Tick Step) - IGUAL QUE MODE INDIVIDUAL
+            if mx_step > 0:
+                ax1.xaxis.set_major_locator(ticker.MultipleLocator(mx_step))
+            
+            # Aplicar límits Y (si no és auto)
+            if not auto_y:
+                ax1.set_ylim(my_min, my_max)
             
             ax1.set_xlabel("Elution Volume (mL)")
             ax1.set_ylabel(f"{y1_sig} (mAU)")
-            ax1.tick_params(axis='y')
             
+            # Eix secundari (Y2)
             ax2 = None
             if y2_sig != "None":
                 ax2 = ax1.twinx()
@@ -545,4 +544,5 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
 
