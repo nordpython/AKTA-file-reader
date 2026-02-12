@@ -133,6 +133,14 @@ uploaded_files = st.file_uploader("📂 Drag and drop files here (.zip, .res, .r
 if uploaded_files:
     
     mode = st.sidebar.radio("Analysis Mode", ["📊 Detailed Analysis (Single)", "📈 Multi-File Comparison (Overlay)"])
+
+    # ───────────────────────────────────────────────────────────────────────────
+    # ✨ NUEVA FUNCIONALIDAD: NORMALICE MENU
+    # ───────────────────────────────────────────────────────────────────────────
+    with st.sidebar.expander("⚖️ Normalice", expanded=False):
+        st.caption("Multiplica todos los valores UV por este número.")
+        norm_factor = st.number_input("Factor multiplicador", value=1.0, step=0.1, format="%.4f")
+
     
     # ───────────────────────────────────────────────────────────────────────────
     # MODE 1: SINGLE FILE
@@ -152,6 +160,12 @@ if uploaded_files:
         try:
             df, data, _ = carregar_fitxer(tmp_path) # Ignorem el nom temporal
             real_filename = target_file.name        # Agafem el nom REAL del fitxer pujat
+            
+            # --- APPLY NORMALIZATION (SINGLE) ---
+            if norm_factor != 1.0:
+                for col in df.columns:
+                    if "UV" in col.upper():
+                        df[col] = df[col] * norm_factor
             
             # --- AUTO-SCALE & PERSISTENCE LOGIC ---
             # 1. Init Memory Keys if missing
@@ -404,6 +418,13 @@ if uploaded_files:
                     tmp_path = tmp.name
                 try:
                     df, _, _ = carregar_fitxer(tmp_path)
+                    
+                    # --- APPLY NORMALIZATION (MULTI) ---
+                    if norm_factor != 1.0:
+                        for col in df.columns:
+                            if "UV" in col.upper():
+                                df[col] = df[col] * norm_factor
+                                
                     loaded_dfs.append({"name": f.name, "df": df})
                     for col in df.columns:
                         if "UV" in col.upper() or "Cond" in col or "Conc" in col:
@@ -496,11 +517,3 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
-
-
-
-
-
-
-
-
