@@ -214,7 +214,7 @@ if uploaded_files:
                 col_x1, col_x2 = st.columns(2)
                 xmin = col_x1.number_input("Min X", step=1.0, key='xmin_input')
                 xmax = col_x2.number_input("Max X", step=1.0, key='xmax_input')
-                x_tick_step = st.number_input("X Step", value=1, min_value=0.1, key='s_xstep')
+                x_tick_step = st.number_input("X Step", value=1.0, min_value=0.1, key='s_xstep')
                 col_y1, col_y2 = st.columns(2)
                 ymin = col_y1.number_input("Min Y", step=5.0, format="%.1f", key='ymin_input')
                 ymax = col_y2.number_input("Max Y", step=5.0, format="%.1f", key='ymax_input')
@@ -496,6 +496,7 @@ if uploaded_files:
 
 else:
     st.info("👆 Please upload files to start.")
+
 
 
 
