@@ -135,14 +135,6 @@ if uploaded_files:
     mode = st.sidebar.radio("Analysis Mode", ["📊 Detailed Analysis (Single)", "📈 Multi-File Comparison (Overlay)"])
 
     # ───────────────────────────────────────────────────────────────────────────
-    # ✨ NUEVA FUNCIONALIDAD: NORMALICE MENU
-    # ───────────────────────────────────────────────────────────────────────────
-    with st.sidebar.expander("⚖️ Normalice", expanded=False):
-        st.caption("Multiplica todos los valores UV por este número.")
-        norm_factor = st.number_input("Factor multiplicador", value=1.0, step=0.1, format="%.4f")
-
-    
-    # ───────────────────────────────────────────────────────────────────────────
     # MODE 1: SINGLE FILE
     # ───────────────────────────────────────────────────────────────────────────
     if mode == "📊 Detailed Analysis (Single)":
@@ -152,23 +144,26 @@ if uploaded_files:
         selected_name = st.sidebar.selectbox("Select File to Analyze", file_names)
         target_file = next(f for f in uploaded_files if f.name == selected_name)
 
+        # ⚖️ NORMALIZE (SINGLE)
+        with st.sidebar.expander("⚖️ Normalice", expanded=False):
+            norm_factor = st.number_input("Factor multiplicador", value=1.0, step=0.1, format="%.4f")
+
         # Load File
         with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(target_file.name)[1]) as tmp:
             tmp.write(target_file.getvalue())
             tmp_path = tmp.name
 
         try:
-            df, data, _ = carregar_fitxer(tmp_path) # Ignorem el nom temporal
-            real_filename = target_file.name        # Agafem el nom REAL del fitxer pujat
+            df, data, _ = carregar_fitxer(tmp_path) 
+            real_filename = target_file.name
             
-            # --- APPLY NORMALIZATION (SINGLE) ---
+            # Aplicar normalización single
             if norm_factor != 1.0:
                 for col in df.columns:
                     if "UV" in col.upper():
                         df[col] = df[col] * norm_factor
             
             # --- AUTO-SCALE & PERSISTENCE LOGIC ---
-            # 1. Init Memory Keys if missing
             if 'uv1_off' not in st.session_state: st.session_state.uv1_off = 0.0
             if 'uv2_off' not in st.session_state: st.session_state.uv2_off = 0.0
             if 'last_loaded_file' not in st.session_state: st.session_state.last_loaded_file = ""
@@ -177,14 +172,11 @@ if uploaded_files:
             possibles_uv = [k for k in cols if "UV" in k.upper()]
             possibles_y2 = [k for k in cols if k not in possibles_uv and k not in ["mL", "Fractions", "260/280"]]
             
-            # 2. Check if NEW file is loaded
             is_new_file = (st.session_state.last_loaded_file != real_filename)
             
-            # 3. Calculate Auto-Ranges (Calculated every time, applied only if new file)
             calc_min_x = float(df["mL"].min())
             calc_max_x = float(df["mL"].max())
             
-            # Estimate Y range based on main UVs
             temp_y_vals = []
             default_u1 = possibles_uv[0] if possibles_uv else None
             default_u2 = possibles_uv[2] if len(possibles_uv)>2 else (possibles_uv[1] if len(possibles_uv)>1 else None)
@@ -198,13 +190,11 @@ if uploaded_files:
                 calc_min_y = float(combined.min()) - 4.0
                 calc_max_y = float(combined.max()) + 4.0
 
-            # 4. Apply to Session State IF new file OR keys missing
             if is_new_file or 'ymin_input' not in st.session_state:
                 st.session_state.ymin_input = calc_min_y
                 st.session_state.ymax_input = calc_max_y
                 st.session_state.xmin_input = calc_min_x
                 st.session_state.xmax_input = calc_max_x
-                # Update tracker
                 st.session_state.last_loaded_file = real_filename
 
             # --- SIDEBAR CONTROLS ---
@@ -378,15 +368,9 @@ if uploaded_files:
                                             })
                                 
                                 if f_list: 
-                                    # 1. Creem el DataFrame
                                     df_fracs = pd.DataFrame(f_list)
                                     df_visual = df_fracs.set_index("Fraction")
-                                    
-                                    # 2. NOU: Fem servir st.table en lloc de st.dataframe
-                                    # Això genera una taula estàtica que es pot seleccionar i copiar fàcilment
                                     st.table(df_visual)
-                                    
-                                    # 3. Botó de descàrrega (el mantenim per si de cas)
                                     csv = df_fracs.to_csv(index=False, sep='\t').encode('utf-8')
                                     st.download_button(
                                         label="📥 Download Table (Compatible Excel)",
@@ -411,6 +395,7 @@ if uploaded_files:
         loaded_dfs = []
         possible_signals = set()
         
+        # 1. CARGA DE ARCHIVOS
         with st.spinner("Loading files..."):
             for f in uploaded_files:
                 with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(f.name)[1]) as tmp:
@@ -418,13 +403,6 @@ if uploaded_files:
                     tmp_path = tmp.name
                 try:
                     df, _, _ = carregar_fitxer(tmp_path)
-                    
-                    # --- APPLY NORMALIZATION (MULTI) ---
-                    if norm_factor != 1.0:
-                        for col in df.columns:
-                            if "UV" in col.upper():
-                                df[col] = df[col] * norm_factor
-                                
                     loaded_dfs.append({"name": f.name, "df": df})
                     for col in df.columns:
                         if "UV" in col.upper() or "Cond" in col or "Conc" in col:
@@ -435,10 +413,29 @@ if uploaded_files:
         if not loaded_dfs:
             st.warning("No valid files loaded.")
         else:
-            sorted_sig = sorted(list(possible_signals))
+            # 2. MENU DINÁMICO: NORMALIZACIÓN INDIVIDUAL
+            # Creamos un diccionario para guardar los factores
+            norm_factors = {}
             
-            # --- AUTO-SELECT 280nm Logic ---
-            # Busquem l'índex de la senyal que contingui "280"
+            with st.sidebar.expander("⚖️ Normalice (Individual per file)", expanded=True):
+                st.caption("Ajusta el factor multiplicador para cada archivo individualmente:")
+                for item in loaded_dfs:
+                    fname = item["name"]
+                    # Usamos una clave única (key) basada en el nombre del archivo
+                    val = st.number_input(f"Factor: {fname}", value=1.0, step=0.1, format="%.2f", key=f"norm_{fname}")
+                    norm_factors[fname] = val
+
+            # 3. APLICAR NORMALIZACIÓN A LOS DATAFRAMES
+            for item in loaded_dfs:
+                factor = norm_factors[item["name"]]
+                if factor != 1.0:
+                    df_temp = item["df"]
+                    for col in df_temp.columns:
+                        if "UV" in col.upper():
+                            df_temp[col] = df_temp[col] * factor
+            
+            # 4. CONFIGURACIÓN DE GRÁFICA (RANGOS Y SEÑALES)
+            sorted_sig = sorted(list(possible_signals))
             default_idx = 0
             for i, sig in enumerate(sorted_sig):
                 if "280" in sig:
@@ -450,6 +447,7 @@ if uploaded_files:
                 y2_sig = st.selectbox("Right Axis (Y2 - Optional)", ["None"] + sorted_sig, index=0)
             
             with st.sidebar.expander("📏 Ranges & Options", expanded=True):
+                # Recalculamos rangos DESPUÉS de aplicar la normalización
                 all_min_x = min([d["df"]["mL"].min() for d in loaded_dfs])
                 all_max_x = max([d["df"]["mL"].max() for d in loaded_dfs])
                 
@@ -463,7 +461,7 @@ if uploaded_files:
                     my_min = c_ry1.number_input("Min Y", value=0.0)
                     my_max = c_ry2.number_input("Max Y", value=100.0)
                 
-                normalize = st.checkbox("Normalize Baseline (Start at 0)", value=True)
+                normalize_base = st.checkbox("Normalize Baseline (Start at 0)", value=True)
                 line_width = st.slider("Line Width", 0.5, 3.0, 1.5)
                 alpha = st.slider("Transparency", 0.1, 1.0, 0.8)
 
@@ -473,6 +471,7 @@ if uploaded_files:
                     orig = item["name"]
                     custom_names[orig] = st.text_input(f"Name for {orig}", value=orig)
 
+            # 5. PLOTTING
             st.markdown("### Comparison Chart")
             
             f_w = st.sidebar.number_input("Width", 14, key="mw")
@@ -487,7 +486,7 @@ if uploaded_files:
                 
                 if y1_sig in df.columns:
                     y_data = df[y1_sig].values
-                    if normalize: y_data = y_data - y_data[0]
+                    if normalize_base: y_data = y_data - y_data[0]
                     ax1.plot(df["mL"], y_data, label=label, color=colors[i], linewidth=line_width, alpha=alpha)
             
             ax1.set_xlim(mx_min, mx_max)
@@ -504,7 +503,7 @@ if uploaded_files:
                     df = item["df"]
                     if y2_sig in df.columns:
                         y2_data = df[y2_sig].values
-                        if normalize: y2_data = y2_data - y2_data[0]
+                        if normalize_base: y2_data = y2_data - y2_data[0]
                         ax2.plot(df["mL"], y2_data, color=colors[i], linestyle="--", linewidth=1, alpha=0.6)
                 ax2.set_ylabel(f"{y2_sig} (Dashed)")
             
