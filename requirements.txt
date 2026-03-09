@@ -4,5 +4,7 @@ numpy
 matplotlib
 openpyxl
 xmltodict
+opencv-python-headless
 git+https://github.com/josocjo/Colab-akta-chromatogram-viewer.git
+
 
