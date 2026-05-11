@@ -5,8 +5,7 @@ matplotlib
 openpyxl
 xmltodict
 opencv-python-headless
-libglib2.0-0
-libgl1
+
 git+https://github.com/josocjo/Colab-akta-chromatogram-viewer.git
 
 
