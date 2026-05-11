@@ -199,6 +199,22 @@ if uploaded_files:
 
             # --- SIDEBAR CONTROLS ---
             st.sidebar.markdown("---")
+
+
+                   # ───────────────────────────────────────────────────────────────────────────
+            # 📥 DOWNLOAD RAW DATA (Afegir a la Sidebar)
+            # ───────────────────────────────────────────────────────────────────────────
+            with st.sidebar.expander("📥 Export Data", expanded=False):
+                # Convertim el DataFrame a CSV (separat per tabuladors per a Excel)
+                raw_csv = df.to_csv(index=False, sep='\t').encode('utf-8')
+                
+                st.download_button(
+                    label="Download Raw Data (CSV)",
+                    data=raw_csv,
+                    file_name=f"raw_data_{real_filename}.csv",
+                    mime="text/csv",
+                )
+            
             with st.sidebar.expander("📊 Signals & Colors", expanded=True):
                 c1, c2 = st.columns(2)
                 y1a_label = c1.selectbox("UV 1 (Main)", options=possibles_uv, index=0, key='s_uv1')
